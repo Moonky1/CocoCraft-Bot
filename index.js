@@ -22,7 +22,7 @@ client.removeAllListeners('guildMemberAdd');
 client.once('ready', () => {
   console.log(`✅ Conectado como ${client.user.tag}`);
   client.user.setPresence({
-    activities: [{ name: 'ExoTown Lobby', type: 0 }], // 0 = Playing
+    activities: [{ name: 'Jugando en Spawn Club', type: 0 }], // 0 = Playing
     status: 'online'
   });
 });
