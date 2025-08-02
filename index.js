@@ -5,6 +5,7 @@ const express = require('express');
 const path = require('path');
 const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
 const { createCanvas, loadImage } = require('canvas');
+const { status } = require('minecraft-server-util');
 
 // ─── Keep-Alive HTTP Server ─────────────────────────────────────────────────────
 const app = express();
@@ -19,12 +20,14 @@ const client = new Client({
 
 // ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
 async function updateChannelNames() {
-  const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (!guild) {
-    return console.error('❌ Guild not found');
-  }
+  console.log('🔧 ENV',
+    'GUILD_ID=', process.env.GUILD_ID,
+    'STATUS_ID=', process.env.CHANNEL_STATUS_ID,
+    'SERVER_ID=', process.env.CHANNEL_SERVER_ID
+  );
 
-  // make sure cache is populated
+  const guild = client.guilds.cache.get(process.env.GUILD_ID);
+  if (!guild) return console.error('❌ Guild not found');
   await guild.channels.fetch();
 
   const statusChan = guild.channels.cache.get(process.env.CHANNEL_STATUS_ID);
@@ -33,12 +36,24 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // 1) Status emoji (green if ping <200ms, orange otherwise)
-  const statusEmoji = client.ws.ping < 200 ? '🟢' : '🟠';
+  // 1) Base emoji: green if Discord ping <200ms, orange otherwise
+  let statusEmoji = client.ws.ping < 200 ? '🟢' : '🟠';
 
-  // 2) Minecraft player count (replace with real value or API)
-  const mcCount = 0;
+  // 2) Try to fetch Minecraft status
+  let mcCount = 0;
+  try {
+    const mcStatus = await status(
+      process.env.MC_HOST,
+      parseInt(process.env.MC_PORT, 10),
+      { timeout: 1500 }
+    );
+    mcCount = mcStatus.players.online;
+  } catch (err) {
+    console.warn('⚠️ MC query failed:', err.message);
+    statusEmoji = '🔴';  // mark red if MC is unreachable
+  }
 
+  // 3) Rename channels
   try {
     await statusChan.setName(`📊 Status: ${statusEmoji}`);
     await serverChan.setName(`👥 Server: ${mcCount}`);
@@ -52,13 +67,13 @@ async function updateChannelNames() {
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // set initial presence
+  // initial presence
   client.user.setPresence({
     status: 'online',
     activities: [{ name: 'Spawn Club', type: ActivityType.Playing }]
   });
 
-  // update immediately and then every minute
+  // run immediately and then every 60s
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
@@ -69,14 +84,12 @@ client.on('guildMemberAdd', async member => {
   console.log('🔔 New member:', member.user.tag);
 
   const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-  if (!canal) {
-    return console.error('❌ Welcome channel not found');
-  }
+  if (!canal) return console.error('❌ Welcome channel not found');
 
   // text welcome
   await canal.send(
     `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}> para roles.`
+    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
   );
 
   // canvas image
@@ -85,17 +98,14 @@ client.on('guildMemberAdd', async member => {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // draw background
     const bg = await loadImage(path.join(__dirname, 'bienvenida.png'));
     ctx.drawImage(bg, 0, 0, width, height);
 
-    // draw username
     ctx.font = 'bold 60px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText(member.user.username, width / 2, 620);
 
-    // draw server name
     ctx.font = 'bold 40px sans-serif';
     ctx.fillText(`Bienvenido a ${member.guild.name}`, width / 2, 670);
 
