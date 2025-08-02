@@ -36,9 +36,9 @@ async function updateChannelNames() {
     await guild.channels.cache.get(process.env.CHANNEL_DISCORD_ID)
       ?.setName(`❤️ Discord: ${discordCount}`);
     await guild.channels.cache.get(process.env.CHANNEL_STATUS_ID)
-      ?.setName(`✨ Status: ${statusEmoji}`);
+      ?.setName(`📊 Status: ${statusEmoji}`);
     await guild.channels.cache.get(process.env.CHANNEL_SERVER_ID)
-      ?.setName(`🕺 Server: ${mcCount}`);
+      ?.setName(`👥 Server: ${mcCount}`);
 
     console.log('🔄 Channels updated');
   } catch (err) {
@@ -96,7 +96,7 @@ client.on('guildMemberAdd', async member => {
     ctx.fillText(`Welcome to ${member.guild.name}`, width / 2, 670);
     const buffer = canvas.toBuffer();
     await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
-    
+
   } catch (err) {
     console.error('⚠️ Canvas error:', err);
   }
