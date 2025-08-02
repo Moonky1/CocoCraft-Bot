@@ -17,32 +17,34 @@ const client = new Client({
   intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers ]
 });
 
-// ─── Update Channel Names Every Minute ──────────────────────────────────────────
+// ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
 async function updateChannelNames() {
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
-  if (!guild) return console.error('❌ Guild not found');
+  if (!guild) {
+    return console.error('❌ Guild not found');
+  }
+
+  // make sure cache is populated
+  await guild.channels.fetch();
+
+  const statusChan = guild.channels.cache.get(process.env.CHANNEL_STATUS_ID);
+  const serverChan = guild.channels.cache.get(process.env.CHANNEL_SERVER_ID);
+  if (!statusChan || !serverChan) {
+    return console.error('❌ One or both channels not found');
+  }
+
+  // 1) Status emoji (green if ping <200ms, orange otherwise)
+  const statusEmoji = client.ws.ping < 200 ? '🟢' : '🟠';
+
+  // 2) Minecraft player count (replace with real value or API)
+  const mcCount = 0;
 
   try {
-    // 1) Discord member count
-    const discordCount = guild.memberCount;
-
-    // 2) Bot status indicator
-    const statusEmoji = client.ws.ping < 200 ? '🟢' : '🟠';
-
-    // 3) Minecraft player count (replace with real data or API call)
-    const mcCount = 0;
-
-    // Rename channels
-    await guild.channels.cache.get(process.env.CHANNEL_DISCORD_ID)
-      ?.setName(`❤️ Discord: ${discordCount}`);
-    await guild.channels.cache.get(process.env.CHANNEL_STATUS_ID)
-      ?.setName(`📊 Status: ${statusEmoji}`);
-    await guild.channels.cache.get(process.env.CHANNEL_SERVER_ID)
-      ?.setName(`👥 Server: ${mcCount}`);
-
-    console.log('🔄 Channels updated');
+    await statusChan.setName(`📊 Status: ${statusEmoji}`);
+    await serverChan.setName(`👥 Server: ${mcCount}`);
+    console.log('✔ Channels updated');
   } catch (err) {
-    console.error('⚠️ Error updating channels:', err);
+    console.error('⚠️ Error renaming channels:', err);
   }
 }
 
@@ -50,13 +52,13 @@ async function updateChannelNames() {
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // Set initial presence
+  // set initial presence
   client.user.setPresence({
     status: 'online',
     activities: [{ name: 'Spawn Club', type: ActivityType.Playing }]
   });
 
-  // Update channels immediately, then every minute
+  // update immediately and then every minute
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
@@ -67,36 +69,38 @@ client.on('guildMemberAdd', async member => {
   console.log('🔔 New member:', member.user.tag);
 
   const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-  if (!canal) return console.error('❌ Welcome channel not found');
+  if (!canal) {
+    return console.error('❌ Welcome channel not found');
+  }
 
-  // Send text welcome
+  // text welcome
   await canal.send(
-    `🍪 Welcome ${member} to **${member.guild.name}**!\n` +
-    `Please read the 📜 <#${process.env.RULES_CHANNEL_ID}> and visit 🌈 <#${process.env.ROLES_CHANNEL_ID}> for roles.`
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}> para roles.`
   );
 
-  // Send canvas image
+  // canvas image
   try {
     const width = 1280, height = 720;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Draw background
+    // draw background
     const bg = await loadImage(path.join(__dirname, 'bienvenida.png'));
     ctx.drawImage(bg, 0, 0, width, height);
 
-    // Draw username
+    // draw username
     ctx.font = 'bold 60px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText(member.user.username, width / 2, 620);
 
-    // Draw server name
+    // draw server name
     ctx.font = 'bold 40px sans-serif';
-    ctx.fillText(`Welcome to ${member.guild.name}`, width / 2, 670);
+    ctx.fillText(`Bienvenido a ${member.guild.name}`, width / 2, 670);
+
     const buffer = canvas.toBuffer();
     await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
-
   } catch (err) {
     console.error('⚠️ Canvas error:', err);
   }
