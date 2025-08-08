@@ -3,7 +3,14 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
-const { Client, GatewayIntentBits, ActivityType } = require('discord.js');
+const {
+  Client,
+  GatewayIntentBits,
+  ActivityType,
+  // ⬇ NEW
+  Events,
+  Collection
+} = require('discord.js');
 const { createCanvas, loadImage } = require('canvas');
 const { status } = require('minecraft-server-util');
 
@@ -15,7 +22,53 @@ app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
 // ─── Discord Client ─────────────────────────────────────────────────────────────
 const client = new Client({
-  intents: [ GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers ]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    // ⬇ NEW: para leer mensajes del canal de verificación
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
+
+// ⬇ NEW: Carga de slash commands desde ./commands
+client.commands = new Collection();
+try {
+  const fs = require('fs');
+  const commandsPath = path.join(__dirname, 'commands');
+  if (fs.existsSync(commandsPath)) {
+    const files = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
+    for (const file of files) {
+      const cmd = require(path.join(commandsPath, file));
+      if (cmd?.data?.name && typeof cmd.execute === 'function') {
+        client.commands.set(cmd.data.name, cmd);
+      }
+    }
+    console.log(`✅ Cargados ${client.commands.size} comandos.`);
+  } else {
+    console.log('⚠️ Carpeta ./commands no encontrada (se omitió carga de comandos).');
+  }
+} catch (e) {
+  console.error('⚠️ Error cargando comandos:', e);
+}
+
+// ⬇ NEW: Handler de slash commands (p.ej. /verify-embed publicar)
+client.on(Events.InteractionCreate, async interaction => {
+  if (!interaction.isChatInputCommand()) return;
+  const cmd = client.commands.get(interaction.commandName);
+  if (!cmd) {
+    return interaction.reply({ content: '❌ Comando no encontrado.', ephemeral: true });
+  }
+  try {
+    await cmd.execute(interaction);
+  } catch (err) {
+    console.error(err);
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply('❌ Ocurrió un error ejecutando el comando.');
+    } else {
+      await interaction.reply({ content: '❌ Ocurrió un error ejecutando el comando.', ephemeral: true });
+    }
+  }
 });
 
 // ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
@@ -113,6 +166,69 @@ client.on('guildMemberAdd', async member => {
     await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
   } catch (err) {
     console.error('⚠️ Canvas error:', err);
+  }
+});
+
+// ─── ⬇ NEW: Auto-limpieza & verificación en canal de verificación ───────────────
+const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
+
+// util para mandar feedback y borrarlo
+async function tempMsg(channel, content, ms = 7000) {
+  const m = await channel.send({ content });
+  setTimeout(() => m.delete().catch(() => {}), ms);
+  return m;
+}
+
+// simula verificación (reemplázalo por tu API/DB)
+async function verifyWithServer(discordId, code) {
+  // TODO: aquí llamas a tu plugin/API para validar y sincronizar roles.
+  await new Promise(r => setTimeout(r, 400)); // latencia simulada
+  return /^\d{4,8}$/.test(code);              // demo: acepta 4-8 dígitos
+}
+
+client.on(Events.MessageCreate, async msg => {
+  if (!msg.guild || msg.author.bot) return;
+  if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
+
+  // borra SIEMPRE el mensaje del usuario para mantener el canal limpio
+  try { await msg.delete(); } catch {}
+
+  // intenta capturar un código 4–8 dígitos
+  const match = msg.content.match(/\b\d{4,8}\b/);
+  if (!match) {
+    return tempMsg(
+      msg.channel,
+      `❌ ${msg.member} envía **solo tu código** generado con \`/discord link\` en el servidor.`,
+      7000
+    );
+  }
+
+  const code = match[0];
+  try {
+    const ok = await verifyWithServer(msg.author.id, code);
+    if (ok) {
+      await tempMsg(
+        msg.channel,
+        `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`,
+        7000
+      );
+      // Ejemplo de asignar rol retornado por tu verificación:
+      // const role = msg.guild.roles.cache.get('ROL_ID');
+      // if (role) await msg.member.roles.add(role).catch(()=>{});
+    } else {
+      await tempMsg(
+        msg.channel,
+        `❌ ${msg.member} el código **${code}** no es válido o expiró. Vuelve a ejecutar \`/discord link\`.`,
+        7000
+      );
+    }
+  } catch (e) {
+    console.error('verify error', e);
+    await tempMsg(
+      msg.channel,
+      `⚠️ ${msg.member} hubo un error procesando tu código. Intenta nuevamente en 1–2 minutos.`,
+      7000
+    );
   }
 });
 
