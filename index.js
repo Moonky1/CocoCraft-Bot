@@ -11,8 +11,22 @@ const {
   Events,
   Collection
 } = require('discord.js');
-const { createCanvas, loadImage } = require('canvas');
+
+// ⬇️ ahora también importamos registerFont
+const { createCanvas, loadImage, registerFont } = require('canvas');
 const { status } = require('minecraft-server-util');
+
+// ───────────────────────────────────────────────────────────────────────────────
+// REGISTRO DE FUENTES (coloca los .ttf en assets/fonts/)
+registerFont(path.join(__dirname, 'assets', 'fonts', 'Inter-Regular.ttf'), {
+  family: 'Inter',
+  weight: 'normal'
+});
+registerFont(path.join(__dirname, 'assets', 'fonts', 'Inter-Bold.ttf'), {
+  family: 'Inter',
+  weight: 'bold'
+});
+// ───────────────────────────────────────────────────────────────────────────────
 
 // ─── Keep-Alive HTTP Server ─────────────────────────────────────────────────────
 const app = express();
@@ -70,50 +84,6 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// ─── Helper: revisar whitelist por RCON ─────────────────────────────────────────
-async function isWhitelistEnabledViaRcon() {
-  const r = new Rcon({
-    host: process.env.RCON_HOST || process.env.MC_HOST,
-    port: Number(process.env.RCON_PORT || 25575),
-    password: process.env.RCON_PASSWORD,
-    timeout: 2500
-  });
-
-  try {
-    await r.connect();
-
-    // 1) Preferimos "whitelist status" (Paper/Spigot modernos)
-    let resp = null;
-    try { resp = await r.send('whitelist status'); } catch {}
-
-    // 2) Si falla, probamos "whitelist" a secas (Paper/Spigot viejos)
-    if (!resp) {
-      try { resp = await r.send('whitelist'); } catch {}
-    }
-
-    // 3) Si aún no hay respuesta, intentamos "whitelist list" sólo para confirmar vida
-    if (!resp) {
-      try { resp = await r.send('whitelist list'); } catch {}
-    }
-
-    const raw = (resp || '').toString();
-    console.log('🔎 RCON whitelist raw:', raw);
-
-    const t = raw.toLowerCase();
-    const enabledTokens  = ['enabled', 'on', 'true', 'activada', 'encendida'];
-    const disabledTokens = ['disabled', 'off', 'false', 'desactivada', 'apagada'];
-
-    if (enabledTokens.some(s => t.includes(s)))  return true;   // whitelist ON
-    if (disabledTokens.some(s => t.includes(s))) return false;  // whitelist OFF
-    return null; // no se pudo inferir, pero el server sí respondió
-  } catch (e) {
-    console.warn('RCON error:', e.message);
-    return null; // rcon falló
-  } finally {
-    try { await r.end(); } catch {}
-  }
-}
-
 // ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
 async function updateChannelNames() {
   console.log('🔧 ENV',
@@ -132,29 +102,47 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // Estado por defecto: 🔴 (offline)
-  let statusEmoji = '🔴';
+  // ── ESTADO por RCON (sin latencia)
+  let statusEmoji = '🟠'; // por defecto
   let mcCount = 0;
 
   try {
-    // Si el query responde, el server está online
+    // Seguimos usando query para el contador (si te funciona mejor con RCON, cámbialo)
     const mcStatus = await status(
       process.env.MC_HOST,
       parseInt(process.env.MC_PORT, 10),
       { timeout: 1500 }
     );
-    mcCount = mcStatus.players?.online ?? 0;
-
-    // Consultamos whitelist por RCON
-    const wl = await isWhitelistEnabledViaRcon();
-    if (wl === true) {
-      statusEmoji = '🟠'; // Mantenimiento/whitelist
-    } else {
-      statusEmoji = '🟢'; // Online normal (wl === false o null)
-    }
+    mcCount = mcStatus.players.online;
   } catch (err) {
-    console.warn('⚠️ MC query failed:', err.message);
-    statusEmoji = '🔴'; // Sin respuesta: offline
+    console.warn('⚠️ MC query failed (contador):', err.message);
+  }
+
+  // Determinar estado con RCON
+  try {
+    const rcon = await Rcon.connect({
+      host: process.env.MC_HOST,
+      port: parseInt(process.env.RCON_PORT, 10),
+      password: process.env.RCON_PASSWORD,
+      timeout: 2000
+    });
+
+    // Si conecta, el server está "arriba"
+    // ¿Whitelist on/off?
+    let wl = 'off';
+    try {
+      const resp = await rcon.send('whitelist list');
+      wl = /whitelist: on|enabled/i.test(resp) ? 'on' : 'off';
+    } catch (_) {}
+
+    await rcon.end();
+
+    // Lógica de colores solo por estado
+    statusEmoji = wl === 'on' ? '🟡' : '🟢'; // whitelist -> amarillo, sin whitelist -> verde
+  } catch (err) {
+    // No conectó RCON => server caído
+    console.warn('⚠️ RCON no disponible:', err.message);
+    statusEmoji = '🔴';
   }
 
   // Renombrar canales
@@ -173,73 +161,53 @@ client.once('ready', async () => {
 
   client.user.setPresence({
     status: 'online',
-    activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
+    activities: [{ name: 'Spawn Club', type: ActivityType.Playing }]
   });
 
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
 
-// ─── Welcome Handler sin embed, 1 solo mensaje (texto + imagen) ───────────────
-// ─── Welcome Handler con imagen normal + Canvas ───────────────────────────────
+// ─── Welcome Handler with Canvas ────────────────────────────────────────────────
 client.removeAllListeners('guildMemberAdd');
-
-async function buildWelcomeCard(member) {
-  const width = 1024;
-  const height = 512;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
-
-  // 1) Fondo
-  const bgPath = path.resolve(__dirname, 'assets', 'images', 'welcome-bg.png');
-  const bg = await loadImage(bgPath);
-  ctx.drawImage(bg, 0, 0, width, height);
-
-  // 2) Avatar circular
-  const avatarUrl = member.user.displayAvatarURL({ extension: 'png', size: 512 });
-  const avatar = await loadImage(avatarUrl);
-  const r = 128;                 // radio del círculo
-  const cx = width / 2;          // centro X
-  const cy = height / 2 - 20;    // centro Y (un pelín arriba)
-
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.closePath();
-  ctx.clip();
-  ctx.drawImage(avatar, cx - r, cy - r, r * 2, r * 2);
-  ctx.restore();
-
-  // 3) Nombre
-  ctx.fillStyle = '#ffffff';
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 56px sans-serif';
-  ctx.fillText(member.user.username, width / 2, height - 50);
-
-  return canvas.toBuffer('image/png');
-}
-
-client.on('guildMemberAdd', async (member) => {
+client.on('guildMemberAdd', async member => {
   console.log('🔔 New member:', member.user.tag);
 
   const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!canal) return console.error('❌ Welcome channel not found');
 
-  // Texto arriba (no embed)
+  // Texto de bienvenida
   await canal.send(
-    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
   );
 
-  // Imagen grande debajo
+  // Imagen con canvas
   try {
-    const buffer = await buildWelcomeCard(member);
-    await canal.send({ files: [{ attachment: buffer, name: `welcome-${member.id}.png` }] });
+    const width = 1280, height = 720;
+    const canvas = createCanvas(width, height);
+    const ctx = canvas.getContext('2d');
+
+    const bg = await loadImage(path.join(__dirname, 'bienvenida.png'));
+    ctx.drawImage(bg, 0, 0, width, height);
+
+    // ⬇️ Usamos Inter (registrada arriba)
+    ctx.font = 'bold 60px Inter';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(member.user.username, width / 2, 620);
+
+    ctx.font = '40px Inter';
+    ctx.fillText(`Bienvenido a ${member.guild.name}`, width / 2, 670);
+
+    const buffer = canvas.toBuffer('image/png');
+    await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
   } catch (err) {
-    console.error('⚠️ Error generando/mandando la imagen de bienvenida:', err);
+    console.error('⚠️ Canvas error:', err);
   }
 });
 
-// ─── Auto-limpieza & verificación en canal de verificación ──────────────────────
+// ─── Auto-limpieza & verificación en canal de verificación ─────────────────────
 const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
 
 async function tempMsg(channel, content, ms = 7000) {
@@ -248,18 +216,20 @@ async function tempMsg(channel, content, ms = 7000) {
   return m;
 }
 
-// Simula verificación (reemplaza por tu API/DB)
+// Demo de verificación (reemplaza por tu API/DB/Plugin)
 async function verifyWithServer(discordId, code) {
-  await new Promise(r => setTimeout(r, 400));
-  return /^\d{4,8}$/.test(code);
+  await new Promise(r => setTimeout(r, 400)); // simular latencia
+  return /^\d{4,8}$/.test(code);              // acepta 4–8 dígitos
 }
 
 client.on(Events.MessageCreate, async msg => {
   if (!msg.guild || msg.author.bot) return;
   if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
 
+  // Borra SIEMPRE el mensaje del usuario
   try { await msg.delete(); } catch {}
 
+  // Captura un código 4–8 dígitos
   const match = msg.content.match(/\b\d{4,8}\b/);
   if (!match) {
     return tempMsg(
@@ -278,7 +248,7 @@ client.on(Events.MessageCreate, async msg => {
         `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`,
         7000
       );
-      // Ejemplo:
+      // Ejemplo de asignar rol devuelto por tu verificación:
       // const role = msg.guild.roles.cache.get('ROL_ID');
       // if (role) await msg.member.roles.add(role).catch(()=>{});
     } else {
