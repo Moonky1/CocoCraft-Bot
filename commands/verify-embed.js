@@ -1,68 +1,83 @@
+// commands/verify-embed.js
 const {
   SlashCommandBuilder,
   ChannelType,
-  PermissionFlagsBits,
-  EmbedBuilder
+  EmbedBuilder,
+  AttachmentBuilder,
 } = require('discord.js');
+const path = require('path');
+const fs = require('fs');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('verify-embed')
-    .setDescription('Gestiona el embed de verificación')
-    .addSubcommand(sc =>
-      sc
+    .setDescription('Publica el embed de verificación')
+    .addSubcommand(sub =>
+      sub
         .setName('publicar')
-        .setDescription('Publica el embed de verificación en un canal')
-        .addChannelOption(o =>
-          o.setName('canal')
-            .setDescription('Canal destino (deja vacío para usar VERIFY_CHANNEL_ID)')
-            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
-            .setRequired(false)
+        .setDescription('Publica/actualiza el embed en un canal')
+        .addChannelOption(opt =>
+          opt
+            .setName('canal')
+            .setDescription('Canal destino (opcional)')
+            .addChannelTypes(ChannelType.GuildText)
         )
-    )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    ),
 
   async execute(interaction) {
-    const canalOpcion = interaction.options.getChannel('canal');
-    const fallbackId = process.env.VERIFY_CHANNEL_ID;
-    const canal = canalOpcion
-      ?? interaction.guild.channels.cache.get(fallbackId)
-      ?? (fallbackId ? await interaction.guild.channels.fetch(fallbackId).catch(() => null) : null);
+    const sub = interaction.options.getSubcommand();
 
-    if (!canal) {
-      return interaction.reply({
-        content: '⚠️ `VERIFY_CHANNEL_ID` no apunta a un canal válido **y** no se indicó `canal`. Pasa un canal o corrige la variable.',
-        ephemeral: true
-      });
+    if (sub !== 'publicar') return;
+
+    await interaction.deferReply({ ephemeral: true });
+
+    // 1) Elegir canal
+    const chosen = interaction.options.getChannel('canal');
+    const fallback = interaction.guild.channels.cache.get(process.env.VERIFY_CHANNEL_ID);
+    const channel = chosen ?? fallback;
+
+    if (!channel || channel.type !== ChannelType.GuildText) {
+      return interaction.editReply('⚠️ `VERIFY_CHANNEL_ID` no apunta a un canal de texto válido.');
     }
 
-    if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(canal.type)) {
-      return interaction.reply({
-        content: '⚠️ El canal indicado no es de **texto**. Elige un canal de texto normal.',
-        ephemeral: true
-      });
+    // 2) Adjuntar banner si existe
+    const bannerPath = path.join(__dirname, '../assets/verify-banner.png');
+    const files = [];
+    let imageUrl = null;
+    if (fs.existsSync(bannerPath)) {
+      files.push(new AttachmentBuilder(bannerPath).setName('verify-banner.png'));
+      imageUrl = 'attachment://verify-banner.png';
     }
 
-    // ⚠️ Sustituye este embed por tu diseño
+    // 3) Construir embed (texto re-escrito)
+    const canalMencion = `<#${channel.id}>`;
+
     const embed = new EmbedBuilder()
       .setColor(0x00ff7f)
-      .setTitle('✅ Verifica tu cuenta')
+      .setTitle('✅ Verificación de rangos')
       .setDescription(
         [
-          '1) Entra al servidor y ejecuta **`/discord link`**',
-          '2) Copia el **código** que te da el juego',
-          `3) Pega **solo el código** en este canal (${canal})`,
+          '### ¿Cómo me verifico?',
+          '• Entra al servidor y escribe **/discord link**.',
+          '• Copia el **código** que te entregue el juego (ej. **8323**).',
+          `• Vuelve a ${canalMencion} y pega **solo el número**. El bot lo borrará y te dirá si quedó vinculado. ✅`,
           '',
-          'El bot borrará tu mensaje y te confirmará si fue vinculado ✅'
+          '### ¿Debo hacerlo por cada modalidad?',
+          'Sí. Manejamos rangos por **modalidad**, así que la verificación es por cada modo donde quieras sincronizar tus roles.',
+          '',
+          '### ¿Qué gano al verificar?',
+          'Se sincronizan automáticamente los rangos/compras que tengas en el server con tus **roles de Discord**, y obtienes tag de **verificado**.',
+          '',
+          '### ¿Ya estaba vinculado?',
+          'Si compraste rangos nuevos o recibiste boosters, vuelve a verificar para actualizar tus roles.',
         ].join('\n')
       )
       .setFooter({ text: 'Spawn Club' });
 
-    await canal.send({ embeds: [embed] });
+    if (imageUrl) embed.setImage(imageUrl);
 
-    return interaction.reply({
-      content: `✅ Embed publicado en ${canal}`,
-      ephemeral: true
-    });
-  }
+    // 4) Publicar
+    await channel.send({ embeds: [embed], files });
+    await interaction.editReply(`✅ Embed publicado en ${canalMencion}.`);
+  },
 };
