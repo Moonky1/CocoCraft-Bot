@@ -227,8 +227,7 @@ client.on('guildMemberAdd', async (member) => {
 
   // Texto arriba (no embed)
   await canal.send(
-    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
   );
 
   // Imagen grande debajo
