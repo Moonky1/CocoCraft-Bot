@@ -1,69 +1,68 @@
-// commands/verify-embed.js
 const {
   SlashCommandBuilder,
+  ChannelType,
   PermissionFlagsBits,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
+  EmbedBuilder
 } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('verify-embed')
-    .setDescription('Publica o limpia el panel de verificación')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .setDescription('Gestiona el embed de verificación')
     .addSubcommand(sc =>
-      sc.setName('publicar')
-        .setDescription('Publica el panel en el canal configurado y lo fija'))
-    .addSubcommand(sc =>
-      sc.setName('limpiar')
-        .setDescription('Borra TODOS los mensajes del bot en el canal de verificación')),
+      sc
+        .setName('publicar')
+        .setDescription('Publica el embed de verificación en un canal')
+        .addChannelOption(o =>
+          o.setName('canal')
+            .setDescription('Canal destino (deja vacío para usar VERIFY_CHANNEL_ID)')
+            .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+            .setRequired(false)
+        )
+    )
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
-    const verifyChannelId = process.env.VERIFY_CHANNEL_ID;
-    const channel = interaction.guild.channels.cache.get(verifyChannelId);
+    const canalOpcion = interaction.options.getChannel('canal');
+    const fallbackId = process.env.VERIFY_CHANNEL_ID;
+    const canal = canalOpcion
+      ?? interaction.guild.channels.cache.get(fallbackId)
+      ?? (fallbackId ? await interaction.guild.channels.fetch(fallbackId).catch(() => null) : null);
 
-    if (!channel) {
-      return interaction.reply({ content: '⚠️ VERIFY_CHANNEL_ID no apunta a un canal válido.', ephemeral: true });
+    if (!canal) {
+      return interaction.reply({
+        content: '⚠️ `VERIFY_CHANNEL_ID` no apunta a un canal válido **y** no se indicó `canal`. Pasa un canal o corrige la variable.',
+        ephemeral: true
+      });
     }
 
-    const sub = interaction.options.getSubcommand();
-
-    if (sub === 'publicar') {
-      const embed = new EmbedBuilder()
-        .setColor(0x2ecc71)
-        .setAuthor({ name: 'Spawn Club | Sincronización', iconURL: interaction.client.user.displayAvatarURL() })
-        .setTitle('✅ Verifica tu cuenta')
-        .setDescription(
-          [
-            '• Entra al **servidor** y usa **`/discord link`** para obtener un **código** (ej: `8323`).',
-            '• **Copia** ese código y **pégalo** en este canal. ',
-            '• El bot validará el código, **sincronizará tus roles** y borrará tu mensaje automáticamente.',
-            '',
-            '👉 Si compras nuevos rangos, repite la verificación para re-sincronizarlos.',
-          ].join('\n')
-        )
-        .setImage(process.env.VERIFY_BANNER || null)
-        .setFooter({ text: 'Spawn Club • Seguridad y sincronización de rangos' });
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setLabel('¿Cómo obtengo mi código?')
-          .setStyle(ButtonStyle.Link)
-          .setURL('https://tu-enlace-de-ayuda-o-wiki') // cambia o quita si no lo usas
-      );
-
-      const msg = await channel.send({ embeds: [embed], components: [row] });
-      try { await msg.pin(); } catch {}
-      return interaction.reply({ content: `📌 Panel publicado en <#${verifyChannelId}> y fijado.`, ephemeral: true });
+    if (![ChannelType.GuildText, ChannelType.GuildAnnouncement].includes(canal.type)) {
+      return interaction.reply({
+        content: '⚠️ El canal indicado no es de **texto**. Elige un canal de texto normal.',
+        ephemeral: true
+      });
     }
 
-    if (sub === 'limpiar') {
-      const messages = await channel.messages.fetch({ limit: 100 });
-      const mine = messages.filter(m => m.author.id === interaction.client.user.id);
-      await channel.bulkDelete(mine, true).catch(() => {});
-      return interaction.reply({ content: '🧹 Paneles del bot eliminados.', ephemeral: true });
-    }
-  },
+    // ⚠️ Sustituye este embed por tu diseño
+    const embed = new EmbedBuilder()
+      .setColor(0x00ff7f)
+      .setTitle('✅ Verifica tu cuenta')
+      .setDescription(
+        [
+          '1) Entra al servidor y ejecuta **`/discord link`**',
+          '2) Copia el **código** que te da el juego',
+          `3) Pega **solo el código** en este canal (${canal})`,
+          '',
+          'El bot borrará tu mensaje y te confirmará si fue vinculado ✅'
+        ].join('\n')
+      )
+      .setFooter({ text: 'Spawn Club' });
+
+    await canal.send({ embeds: [embed] });
+
+    return interaction.reply({
+      content: `✅ Embed publicado en ${canal}`,
+      ephemeral: true
+    });
+  }
 };
