@@ -173,27 +173,31 @@ client.once('ready', async () => {
 
   client.user.setPresence({
     status: 'online',
-    activities: [{ name: 'Spawn Club', type: ActivityType.Playing }]
+    activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
   });
 
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
 
-// ─── Welcome Handler with Canvas ────────────────────────────────────────────────
+// ─── Welcome Handler sin embed, 1 solo mensaje (texto + imagen) ───────────────
+const recentJoins = new Set(); // anti-duplicados temporal
+
 client.removeAllListeners('guildMemberAdd');
-client.on('guildMemberAdd', async member => {
-  console.log('🔔 New member:', member.user.tag);
-
-  const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-  if (!canal) return console.error('❌ Welcome channel not found');
-
-  await canal.send(
-    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
-  );
-
+client.on('guildMemberAdd', async (member) => {
   try {
+    if (member.user.bot) return;
+
+    // anti-duplicado por si se dispara doble en pocos segundos
+    const key = `${member.guild.id}:${member.id}`;
+    if (recentJoins.has(key)) return;
+    recentJoins.add(key);
+    setTimeout(() => recentJoins.delete(key), 15000);
+
+    const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+    if (!canal) return console.error('❌ Welcome channel not found');
+
+    // --- Genera la imagen con canvas (mismo fondo que ya usabas)
     const width = 1280, height = 720;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
@@ -201,18 +205,35 @@ client.on('guildMemberAdd', async member => {
     const bg = await loadImage(path.join(__dirname, 'bienvenida.png'));
     ctx.drawImage(bg, 0, 0, width, height);
 
-    ctx.font = 'bold 60px sans-serif';
+    // (Opcional) avatar circular
+    try {
+      const avatar = await loadImage(member.user.displayAvatarURL({ extension: 'png', size: 512 }));
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(120, 120, 100, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(avatar, 20, 20, 200, 200);
+      ctx.restore();
+    } catch {}
+
+    // (Opcional) texto encima del fondo
+    ctx.font = 'bold 46px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.fillText(member.user.username, width / 2, 620);
-
-    ctx.font = 'bold 40px sans-serif';
-    ctx.fillText(`Bienvenido a ${member.guild.name}`, width / 2, 670);
+    ctx.fillText(`¡Bienvenido, ${member.user.username}!`, width / 2, 620);
 
     const buffer = canvas.toBuffer();
-    await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
+
+    // --- Enviar UN solo mensaje: texto + imagen (sin embed)
+    await canal.send({
+      content:
+        `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+        `Por favor lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}> para obtener roles.`,
+      files: [{ attachment: buffer, name: 'bienvenida.png' }]
+    });
   } catch (err) {
-    console.error('⚠️ Canvas error:', err);
+    console.error('⚠️ Welcome error:', err);
   }
 });
 
