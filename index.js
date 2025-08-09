@@ -181,59 +181,62 @@ client.once('ready', async () => {
 });
 
 // ─── Welcome Handler sin embed, 1 solo mensaje (texto + imagen) ───────────────
-const recentJoins = new Set(); // anti-duplicados temporal
-
+// ─── Welcome Handler con imagen normal + Canvas ───────────────────────────────
 client.removeAllListeners('guildMemberAdd');
+
+async function buildWelcomeCard(member) {
+  const width = 1024;
+  const height = 512;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // 1) Fondo
+  const bgPath = path.resolve(__dirname, 'assets', 'images', 'welcome-bg.png');
+  const bg = await loadImage(bgPath);
+  ctx.drawImage(bg, 0, 0, width, height);
+
+  // 2) Avatar circular
+  const avatarUrl = member.user.displayAvatarURL({ extension: 'png', size: 512 });
+  const avatar = await loadImage(avatarUrl);
+  const r = 128;                 // radio del círculo
+  const cx = width / 2;          // centro X
+  const cy = height / 2 - 20;    // centro Y (un pelín arriba)
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(avatar, cx - r, cy - r, r * 2, r * 2);
+  ctx.restore();
+
+  // 3) Nombre
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 56px sans-serif';
+  ctx.fillText(member.user.username, width / 2, height - 50);
+
+  return canvas.toBuffer('image/png');
+}
+
 client.on('guildMemberAdd', async (member) => {
+  console.log('🔔 New member:', member.user.tag);
+
+  const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+  if (!canal) return console.error('❌ Welcome channel not found');
+
+  // Texto arriba (no embed)
+  await canal.send(
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+  );
+
+  // Imagen grande debajo
   try {
-    if (member.user.bot) return;
-
-    // anti-duplicado por si se dispara doble en pocos segundos
-    const key = `${member.guild.id}:${member.id}`;
-    if (recentJoins.has(key)) return;
-    recentJoins.add(key);
-    setTimeout(() => recentJoins.delete(key), 15000);
-
-    const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-    if (!canal) return console.error('❌ Welcome channel not found');
-
-    // --- Genera la imagen con canvas (mismo fondo que ya usabas)
-    const width = 1280, height = 720;
-    const canvas = createCanvas(width, height);
-    const ctx = canvas.getContext('2d');
-
-    const bg = await loadImage(path.join(__dirname, 'bienvenida.png'));
-    ctx.drawImage(bg, 0, 0, width, height);
-
-    // (Opcional) avatar circular
-    try {
-      const avatar = await loadImage(member.user.displayAvatarURL({ extension: 'png', size: 512 }));
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(120, 120, 100, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(avatar, 20, 20, 200, 200);
-      ctx.restore();
-    } catch {}
-
-    // (Opcional) texto encima del fondo
-    ctx.font = 'bold 46px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    ctx.fillText(`¡Bienvenido, ${member.user.username}!`, width / 2, 620);
-
-    const buffer = canvas.toBuffer();
-
-    // --- Enviar UN solo mensaje: texto + imagen (sin embed)
-    await canal.send({
-      content:
-        `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-        `Por favor lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}> para obtener roles.`,
-      files: [{ attachment: buffer, name: 'bienvenida.png' }]
-    });
+    const buffer = await buildWelcomeCard(member);
+    await canal.send({ files: [{ attachment: buffer, name: `welcome-${member.id}.png` }] });
   } catch (err) {
-    console.error('⚠️ Welcome error:', err);
+    console.error('⚠️ Error generando/mandando la imagen de bienvenida:', err);
   }
 });
 
