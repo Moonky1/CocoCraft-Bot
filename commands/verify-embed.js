@@ -4,6 +4,7 @@ const {
   EmbedBuilder,
   AttachmentBuilder,
   PermissionFlagsBits,
+  ChannelType,
 } = require('discord.js');
 const path = require('path');
 const fs = require('fs');
@@ -12,46 +13,84 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('verify-embed')
     .setDescription('Publica el embed de verificación')
-    .addSubcommand(sc =>
+    .addSubcommand((sc) =>
       sc
         .setName('publicar')
         .setDescription('Publicar en el canal de verificación')
-        .addChannelOption(opt =>
+        .addChannelOption((opt) =>
           opt
             .setName('canal')
-            .setDescription('Canal donde publicar (opcional, usa VERIFY_CHANNEL_ID si no)')
-            .setRequired(false),
-        ),
+            .setDescription('Canal destino (opcional, usa VERIFY_CHANNEL_ID si no)')
+            // solo canales de texto del servidor
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(false)
+        )
     )
-    // que solo admins/gestores del server lo puedan usar
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     try {
-      // Canal objetivo: parámetro o .env
-      const providedChannel = interaction.options.getChannel('canal');
-      const envChannel =
-        interaction.guild.channels.cache.get(process.env.VERIFY_CHANNEL_ID);
-      const targetChannel = providedChannel ?? envChannel;
+      const sub = interaction.options.getSubcommand(true);
 
-      if (!targetChannel) {
+      if (sub !== 'publicar') {
         return interaction.reply({
-          content: '⚠️ VERIFY_CHANNEL_ID no apunta a un canal válido y no se proporcionó uno.',
+          content: '❌ Subcomando no válido.',
           ephemeral: true,
         });
       }
 
-      // — Embed (texto)
-      const canal = `<#${targetChannel.id}>`;
+      // Canal: opción del comando o por .env
+      const providedChannel = interaction.options.getChannel('canal') || null;
+      const envId = process.env.VERIFY_CHANNEL_ID;
+      const envChannel =
+        envId && interaction.guild.channels.cache.get(envId)
+          ? interaction.guild.channels.cache.get(envId)
+          : null;
+
+      const channel = providedChannel ?? envChannel;
+
+      if (!channel) {
+        return interaction.reply({
+          content:
+            '⚠️ VERIFY_CHANNEL_ID no apunta a un canal válido y no se proporcionó uno.',
+          ephemeral: true,
+        });
+      }
+
+      // Validaciones de envío
+      if (!channel.isTextBased?.() || channel.type !== ChannelType.GuildText) {
+        return interaction.reply({
+          content: '⚠️ El canal seleccionado no es un canal de texto del servidor.',
+          ephemeral: true,
+        });
+      }
+
+      const me = interaction.guild.members.me;
+      const canSend =
+        channel
+          .permissionsFor(me)
+          ?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages]) ?? false;
+
+      if (!canSend) {
+        return interaction.reply({
+          content:
+            '⚠️ No tengo permisos para enviar mensajes en ese canal (ViewChannel/SendMessages).',
+          ephemeral: true,
+        });
+      }
+
+      // Construcción del embed
+      const canalMencion = `<#${channel.id}>`;
+
       const embed = new EmbedBuilder()
         .setColor(0x00ff77)
-        .setTitle('✅  Verificación de rangos')
+        .setTitle('✅ Verificación de rangos')
         .setDescription(
           [
             '### ¿Cómo me verifico?',
             '• Entra al servidor y escribe **/discord link**',
             '• Copia el **código** que te entrega el juego (ej. **8323**).',
-            `• Vuelve a ${canal} y pega **solo el número**. El bot lo borrará y te confirmará.`,
+            `• Vuelve a ${canalMencion} y pega **solo el número**. El bot lo borrará y te confirmará.`,
             '',
             '### ¿Debo hacerlo por cada modalidad?',
             'Sí, manejamos rangos por **modalidad**, así que la verificación es por cada modo.',
@@ -59,30 +98,26 @@ module.exports = {
             '### ¿Qué gano al verificar?',
             'Sincronizamos tus compras/rangos con tus **roles de Discord** y obtienes la etiqueta **verificado**.',
             '',
-            '### ¿Ya estaba vinculado?',
+            '### ¿Ya estabas vinculado?',
             'Si compraste rangos nuevos o recibiste boosters, vuelve a verificar para actualizar tus roles.',
-          ].join('\n'),
-        )
-        .setFooter({ text: 'SC_VERIFY_V1 • Spawn Club' });
+          ].join('\n')
+        );
 
-      // — Banner por fuera del embed (adjunto)
-      // Coloca la imagen en: ./assets/images/verify-banner.png
+      // Banner (fuera del embed) si existe
       const bannerPath = path.join(__dirname, '../assets/images/verify-banner.png');
-      let files = [];
+      const files = [];
 
       try {
         if (fs.existsSync(bannerPath)) {
-          const file = new AttachmentBuilder(bannerPath, { name: 'verify-banner.png' });
-          files = [file];
-        } else {
-          console.warn('[verify-embed] No se encontró el banner en', bannerPath);
+          files.push(new AttachmentBuilder(bannerPath, { name: 'verify-banner.png' }));
         }
       } catch (err) {
-        console.warn('[verify-embed] Error leyendo banner:', err);
+        console.warn('[verify-embed] No se pudo leer el banner:', err?.message || err);
       }
 
-      // — Enviar: si hay banner, se verá “arriba”; el embed va en el mismo mensaje
-      await targetChannel.send(files.length ? { files, embeds: [embed] } : { embeds: [embed] });
+      // Envío (primero banner si hay, luego embed)
+      if (files.length) await channel.send({ files });
+      await channel.send({ embeds: [embed] });
 
       return interaction.reply({ content: '✅ Publicado.', ephemeral: true });
     } catch (err) {
@@ -97,5 +132,3 @@ module.exports = {
     }
   },
 };
-
-
