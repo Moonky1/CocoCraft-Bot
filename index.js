@@ -8,7 +8,6 @@ const {
   Client,
   GatewayIntentBits,
   ActivityType,
-  // ⬇ NEW
   Events,
   Collection
 } = require('discord.js');
@@ -26,13 +25,12 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
-    // ⬇ NEW: para leer mensajes del canal de verificación
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
 });
 
-// ⬇ NEW: Carga de slash commands desde ./commands
+// Carga de slash commands desde ./commands
 client.commands = new Collection();
 try {
   const fs = require('fs');
@@ -53,7 +51,7 @@ try {
   console.error('⚠️ Error cargando comandos:', e);
 }
 
-// ⬇ NEW: Handler de slash commands (p.ej. /verify-embed publicar)
+// Handler de slash commands
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const cmd = client.commands.get(interaction.commandName);
@@ -74,7 +72,7 @@ client.on(Events.InteractionCreate, async interaction => {
 
 // ─── Helper: revisar whitelist por RCON ─────────────────────────────────────────
 async function isWhitelistEnabledViaRcon() {
-  const client = new Rcon({
+  const r = new Rcon({
     host: process.env.RCON_HOST || process.env.MC_HOST,
     port: Number(process.env.RCON_PORT || 25575),
     password: process.env.RCON_PASSWORD,
@@ -82,19 +80,37 @@ async function isWhitelistEnabledViaRcon() {
   });
 
   try {
-    await client.connect();
-    // En Paper/Spigot "whitelist" (sin args) suele devolver "Whitelist is currently: enabled/disabled"
-    const resp = await client.send('whitelist');
-    const txt = String(resp).toLowerCase();
-    await client.end();
+    await r.connect();
 
-    if (txt.includes('enabled')) return true;
-    if (txt.includes('disabled')) return false;
-    return null; // No pudimos inferirlo, pero el server está vivo (porque RCON respondió)
+    // 1) Preferimos "whitelist status" (Paper/Spigot modernos)
+    let resp = null;
+    try { resp = await r.send('whitelist status'); } catch {}
+
+    // 2) Si falla, probamos "whitelist" a secas (Paper/Spigot viejos)
+    if (!resp) {
+      try { resp = await r.send('whitelist'); } catch {}
+    }
+
+    // 3) Si aún no hay respuesta, intentamos "whitelist list" sólo para confirmar vida
+    if (!resp) {
+      try { resp = await r.send('whitelist list'); } catch {}
+    }
+
+    const raw = (resp || '').toString();
+    console.log('🔎 RCON whitelist raw:', raw);
+
+    const t = raw.toLowerCase();
+    const enabledTokens  = ['enabled', 'on', 'true', 'activada', 'encendida'];
+    const disabledTokens = ['disabled', 'off', 'false', 'desactivada', 'apagada'];
+
+    if (enabledTokens.some(s => t.includes(s)))  return true;   // whitelist ON
+    if (disabledTokens.some(s => t.includes(s))) return false;  // whitelist OFF
+    return null; // no se pudo inferir, pero el server sí respondió
   } catch (e) {
-    try { await client.end(); } catch {}
     console.warn('RCON error:', e.message);
-    return null; // Consideraremos esto como "no sabemos"
+    return null; // rcon falló
+  } finally {
+    try { await r.end(); } catch {}
   }
 }
 
@@ -116,12 +132,12 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // ── NUEVA LÓGICA: SOLO RCON (sin latencia de Discord)
-  let statusEmoji = '🔴'; // por defecto apagado
+  // Estado por defecto: 🔴 (offline)
+  let statusEmoji = '🔴';
   let mcCount = 0;
 
   try {
-    // Si el server responde al ping, está online
+    // Si el query responde, el server está online
     const mcStatus = await status(
       process.env.MC_HOST,
       parseInt(process.env.MC_PORT, 10),
@@ -129,20 +145,19 @@ async function updateChannelNames() {
     );
     mcCount = mcStatus.players?.online ?? 0;
 
-    // Consultamos whitelist con RCON
+    // Consultamos whitelist por RCON
     const wl = await isWhitelistEnabledViaRcon();
     if (wl === true) {
-      statusEmoji = '🟠'; // Whitelist encendida / mantenimiento
+      statusEmoji = '🟠'; // Mantenimiento/whitelist
     } else {
-      // wl === false o null (no pudimos saberlo): si está online, lo marcamos como online
-      statusEmoji = '🟢';
+      statusEmoji = '🟢'; // Online normal (wl === false o null)
     }
   } catch (err) {
     console.warn('⚠️ MC query failed:', err.message);
-    statusEmoji = '🔴'; // Offline
+    statusEmoji = '🔴'; // Sin respuesta: offline
   }
 
-  // 3) Rename channels
+  // Renombrar canales
   try {
     await statusChan.setName(`📊 Status: ${statusEmoji}`);
     await serverChan.setName(`👥 Server: ${mcCount}`);
@@ -156,13 +171,11 @@ async function updateChannelNames() {
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
-  // initial presence
   client.user.setPresence({
     status: 'online',
     activities: [{ name: 'Spawn Club', type: ActivityType.Playing }]
   });
 
-  // run immediately and then every 60s
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
@@ -175,13 +188,11 @@ client.on('guildMemberAdd', async member => {
   const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
   if (!canal) return console.error('❌ Welcome channel not found');
 
-  // text welcome
   await canal.send(
     `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
     `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
   );
 
-  // canvas image
   try {
     const width = 1280, height = 720;
     const canvas = createCanvas(width, height);
@@ -205,31 +216,27 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
-// ─── ⬇ NEW: Auto-limpieza & verificación en canal de verificación ───────────────
+// ─── Auto-limpieza & verificación en canal de verificación ──────────────────────
 const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
 
-// util para mandar feedback y borrarlo
 async function tempMsg(channel, content, ms = 7000) {
   const m = await channel.send({ content });
   setTimeout(() => m.delete().catch(() => {}), ms);
   return m;
 }
 
-// simula verificación (reemplázalo por tu API/DB)
+// Simula verificación (reemplaza por tu API/DB)
 async function verifyWithServer(discordId, code) {
-  // TODO: aquí llamas a tu plugin/API para validar y sincronizar roles.
-  await new Promise(r => setTimeout(r, 400)); // latencia simulada
-  return /^\d{4,8}$/.test(code);              // demo: acepta 4-8 dígitos
+  await new Promise(r => setTimeout(r, 400));
+  return /^\d{4,8}$/.test(code);
 }
 
 client.on(Events.MessageCreate, async msg => {
   if (!msg.guild || msg.author.bot) return;
   if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
 
-  // borra SIEMPRE el mensaje del usuario para mantener el canal limpio
   try { await msg.delete(); } catch {}
 
-  // intenta capturar un código 4–8 dígitos
   const match = msg.content.match(/\b\d{4,8}\b/);
   if (!match) {
     return tempMsg(
@@ -248,7 +255,7 @@ client.on(Events.MessageCreate, async msg => {
         `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`,
         7000
       );
-      // Ejemplo de asignar rol retornado por tu verificación:
+      // Ejemplo:
       // const role = msg.guild.roles.cache.get('ROL_ID');
       // if (role) await msg.member.roles.add(role).catch(()=>{});
     } else {
