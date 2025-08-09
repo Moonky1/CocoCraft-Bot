@@ -3,6 +3,7 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
+const { Rcon } = require('rcon-client');
 const {
   Client,
   GatewayIntentBits,
@@ -71,6 +72,32 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
+// ─── Helper: revisar whitelist por RCON ─────────────────────────────────────────
+async function isWhitelistEnabledViaRcon() {
+  const client = new Rcon({
+    host: process.env.RCON_HOST || process.env.MC_HOST,
+    port: Number(process.env.RCON_PORT || 25575),
+    password: process.env.RCON_PASSWORD,
+    timeout: 2500
+  });
+
+  try {
+    await client.connect();
+    // En Paper/Spigot "whitelist" (sin args) suele devolver "Whitelist is currently: enabled/disabled"
+    const resp = await client.send('whitelist');
+    const txt = String(resp).toLowerCase();
+    await client.end();
+
+    if (txt.includes('enabled')) return true;
+    if (txt.includes('disabled')) return false;
+    return null; // No pudimos inferirlo, pero el server está vivo (porque RCON respondió)
+  } catch (e) {
+    try { await client.end(); } catch {}
+    console.warn('RCON error:', e.message);
+    return null; // Consideraremos esto como "no sabemos"
+  }
+}
+
 // ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
 async function updateChannelNames() {
   console.log('🔧 ENV',
@@ -89,21 +116,30 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // 1) Base emoji: green if Discord ping <200ms, orange otherwise
-  let statusEmoji = client.ws.ping < 200 ? '🟢' : '🟠';
-
-  // 2) Try to fetch Minecraft status
+  // ── NUEVA LÓGICA: SOLO RCON (sin latencia de Discord)
+  let statusEmoji = '🔴'; // por defecto apagado
   let mcCount = 0;
+
   try {
+    // Si el server responde al ping, está online
     const mcStatus = await status(
       process.env.MC_HOST,
       parseInt(process.env.MC_PORT, 10),
       { timeout: 1500 }
     );
-    mcCount = mcStatus.players.online;
+    mcCount = mcStatus.players?.online ?? 0;
+
+    // Consultamos whitelist con RCON
+    const wl = await isWhitelistEnabledViaRcon();
+    if (wl === true) {
+      statusEmoji = '🟠'; // Whitelist encendida / mantenimiento
+    } else {
+      // wl === false o null (no pudimos saberlo): si está online, lo marcamos como online
+      statusEmoji = '🟢';
+    }
   } catch (err) {
     console.warn('⚠️ MC query failed:', err.message);
-    statusEmoji = '🔴';  // mark red if MC is unreachable
+    statusEmoji = '🔴'; // Offline
   }
 
   // 3) Rename channels
