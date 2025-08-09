@@ -83,14 +83,15 @@ module.exports = {
       const canalMencion = `<#${channel.id}>`;
 
       const embed = new EmbedBuilder()
-        .setColor(0x00ff77)
+        .setColor(0x000000)
         .setTitle('✅ Verificación de rangos')
         .setDescription(
           [
             '### ¿Cómo me verifico?',
             '• Entra al servidor y escribe **/discord link**',
             '• Copia el **código** que te entrega el juego (ej. **8323**).',
-            `• Vuelve a ${canalMencion} y pega **solo el número**. El bot lo borrará y te confirmará.`,
+            `• Vuelve a ${canalMencion} y pega **solo el número**. '
+            'El bot lo borrará y te confirmará.`,
             '',
             '### ¿Debo hacerlo por cada modalidad?',
             'Sí, manejamos rangos por **modalidad**, así que la verificación es por cada modo.',
