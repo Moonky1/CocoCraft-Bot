@@ -382,6 +382,7 @@ const {
   ButtonStyle,
   EmbedBuilder,         // <- asegúrate de tenerlo
   ChannelType,
+  ButtonBuilder,
   ActionRowBuilder,         // <- ESTE es el que falta
   PermissionFlagsBits  // <- si lo usas en permissionOverwrites
 } = require('discord.js');
