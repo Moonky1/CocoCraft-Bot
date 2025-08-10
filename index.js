@@ -206,9 +206,9 @@ async function drawWelcome(member) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Anti-duplicados
+// Anti-duplicados en memoria (solo evita spam dentro de 20s)
 const recentWelcomes = new Map();         // memberId -> expiresAt
-const WELCOME_TTL_MS = 20_000;            // 20s
+const WELCOME_TTL_MS = 20_000;
 
 function wasWelcomedRecently(id) {
   const t = recentWelcomes.get(id);
@@ -220,21 +220,29 @@ function markWelcomed(id) {
   recentWelcomes.set(id, Date.now() + WELCOME_TTL_MS);
 }
 
-// ¿Ya hay un mensaje reciente del bot para este miembro?
-async function alreadyInChannel(channel, member, windowSec = 45) {
+// ¿Ya hay un mensaje reciente del bot para ESTE miembro?
+async function alreadyInChannel(channel, member, windowSec = 90) {
   const now = Date.now();
-  const msgs = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+  const msgs = await channel.messages.fetch({ limit: 30 }).catch(() => null);
   if (!msgs) return false;
 
-  const hit = msgs.find(m =>
+  const hit = [...msgs.values()].find(m =>
     m.author.id === client.user.id &&
-    (m.content.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
+    (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
     (now - m.createdTimestamp) <= windowSec * 1000
   );
   return Boolean(hit);
 }
 
-// Limpieza de duplicados: deja el más nuevo de este bot para ese miembro
+// Marca si el mensaje es de nuestro "formato nuevo": texto + imagen 'bienvenida.png'
+function isV2Welcome(m, memberId) {
+  const hasText = m.content?.includes('🍪 ¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
+  const hasImage = m.attachments.size > 0 && [...m.attachments.values()].some(a => a.name?.toLowerCase() === 'bienvenida.png');
+  return hasText && hasImage;
+}
+
+// Limpieza de duplicados: conserva preferentemente la versión nueva (texto+imagen)
+// Si no hay V2, conserva el más reciente.
 async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
   const now = Date.now();
   const msgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
@@ -242,17 +250,25 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
 
   const mine = [...msgs.values()].filter(m =>
     m.author.id === client.user.id &&
-    (m.content.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
+    (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
     (now - m.createdTimestamp) <= windowSec * 1000
   );
-
   if (mine.length <= 1) return;
-  mine.sort((a, b) => b.createdTimestamp - a.createdTimestamp); // nuevo → viejo
-  for (let i = 1; i < mine.length; i++) {
+
+  // Ordena nuevo → viejo
+  mine.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+
+  // Intenta localizar la versión V2 más reciente
+  const keepIndex = mine.findIndex(m => isV2Welcome(m, member.id));
+  const indexToKeep = keepIndex >= 0 ? keepIndex : 0; // si no hay V2, conserva el más nuevo
+
+  for (let i = 0; i < mine.length; i++) {
+    if (i === indexToKeep) continue;
     await mine[i].delete().catch(() => {});
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────────
 // Evita múltiples listeners si recargas
 client.removeAllListeners('guildMemberAdd');
 client.on('guildMemberAdd', async (member) => {
@@ -262,29 +278,29 @@ client.on('guildMemberAdd', async (member) => {
 
     // Si otra instancia lo acaba de saludar, no dupliques
     if (wasWelcomedRecently(member.id)) return;
-    if (await alreadyInChannel(canal, member, 45)) { markWelcomed(member.id); return; }
+    if (await alreadyInChannel(canal, member, 90)) { markWelcomed(member.id); return; }
 
-    // Limpia posibles restos ANTES de publicar
+    // Limpia restos anteriores (si quedaron)
     await cleanWelcomeDuplicates(canal, member, 600);
 
-    // Construye la imagen
+    // Imagen + texto (esto define "V2")
     const buffer = await drawWelcome(member);
     const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
 
-    // Publica UN SOLO mensaje (texto + imagen)
     const content =
-      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
+      `🍪 ¡Bienvenido <@${member.id}> a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
 
     await canal.send({ content, files: [file] });
 
-    // Marca y limpia otra vez 2.5s después por si otra instancia alcanzó a publicar
+    // Marca y, unos segundos después, limpia duplicados conservando V2 si aparece otra
     markWelcomed(member.id);
-    setTimeout(() => cleanWelcomeDuplicates(canal, member, 600).catch(() => {}), 2500);
+    setTimeout(() => cleanWelcomeDuplicates(canal, member, 600).catch(() => {}), 3500);
 
   } catch (e) {
     console.error('welcome error', e);
   }
 });
+
 
 // ───────────────────────────────────────────────────────────────────────────────
 // READY
