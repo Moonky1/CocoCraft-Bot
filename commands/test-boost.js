@@ -9,27 +9,27 @@ module.exports = {
     .setName('test-boost')
     .setDescription('Simula un boost para previsualizar el mensaje')
     .addUserOption(o =>
-      o.setName('usuario')
-        .setDescription('Quién “boosteó” (opcional)')
+      o.setName('miembro')
+        .setDescription('Quién “boosteó” (por defecto: tú)')
     )
     .addIntegerOption(o =>
       o.setName('conteo')
-        .setDescription('Total de boosts después del evento (opcional)')
+        .setDescription('Total de boosts tras el evento')
         .setMinValue(1)
     ),
 
   async execute(interaction) {
-    const user = interaction.options.getUser('usuario') ?? interaction.user;
-    const boosts = interaction.options.getInteger('conteo') ?? 22; // número de ejemplo
-    const channel = interaction.guild.channels.cache.get(BOOSTS_CHANNEL_ID);
+    const newMember = interaction.options.getUser('miembro') ?? interaction.user;
+    const totalBoosts = interaction.options.getInteger('conteo') ?? 1;
 
-    if (!channel) {
+    const boostsChannel = interaction.guild.channels.cache.get(BOOSTS_CHANNEL_ID);
+    if (!boostsChannel) {
       return interaction.reply({ content: '❌ No encuentro el canal de boosts.', ephemeral: true });
     }
 
     const content = `**¡Gracias por el boost ${newMember}!** Con este ya sumamos **${totalBoosts}** boosts. Canjea tus premios en <#${TICKETS_CHANNEL_ID}>.`;
 
-    await channel.send({ content });
+    await boostsChannel.send({ content });
     await interaction.reply({ content: '✅ Mensaje de prueba enviado a #boosts.', ephemeral: true });
   }
 };
