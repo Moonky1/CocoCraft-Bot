@@ -146,8 +146,6 @@ client.on(Events.MessageCreate, async msg => {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas  (fuente + fondo + avatar)
-const { AttachmentBuilder } = require('discord.js');
-const { createCanvas, loadImage, registerFont } = require('canvas');
 const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
 try { registerFont(FONT_PATH, { family: 'DMSansBold' }); }
 catch (e) { console.warn('⚠️ No pude registrar la fuente:', e.message); }
@@ -270,7 +268,7 @@ client.on('guildMemberAdd', async member => {
     // Construye la imagen
     const buffer = await drawWelcome(member);
     const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
-
+    await canal.send({ files: [file] });
     // Publica **un solo** mensaje (texto + imagen)
     const content =
       `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
