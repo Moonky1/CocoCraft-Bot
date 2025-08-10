@@ -385,37 +385,31 @@ const {
 } = require('discord.js');
 
 // helpers de permisos
-function buildOverwrites(guild, openerId) {
+function buildOverwrites(guild, openerId, supportRoleIds = []) {
   const overwrites = [
-    { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
-    {
-      id: openerId,
-      allow: [
-        PermissionsBitField.Flags.ViewChannel,
-        PermissionsBitField.Flags.SendMessages,
-        PermissionsBitField.Flags.ReadMessageHistory,
-        PermissionsBitField.Flags.AttachFiles,
-      ],
-    },
+    { id: guild.roles.everyone, deny:  [PermissionFlagsBits.ViewChannel] },
+    { id: openerId,             allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.AttachFiles
+    ]},
   ];
 
-  const raw = (process.env.SUPPORT_ROLE_IDS || '').trim();
-  if (raw) {
-    const ids = raw.split(',').map(s => s.trim()).filter(Boolean);
-    for (const id of ids) {
-      overwrites.push({
-        id,
-        allow: [
-          PermissionsBitField.Flags.ViewChannel,
-          PermissionsBitField.Flags.SendMessages,
-          PermissionsBitField.Flags.ReadMessageHistory,
-          PermissionsBitField.Flags.ManageMessages,
-        ],
-      });
-    }
+  for (const rid of supportRoleIds) {
+    overwrites.push({
+      id: rid,
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.ReadMessageHistory,
+        PermissionFlagsBits.SendMessages
+      ],
+    });
   }
+
   return overwrites;
 }
+
 
 // busca si el usuario ya tiene un ticket (marcamos el topic con su ID)
 function findExistingTicket(guild, userId) {
