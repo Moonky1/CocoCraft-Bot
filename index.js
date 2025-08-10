@@ -26,6 +26,48 @@ const client = new Client({
   ]
 });
 
+// ── Boost detector ────────────────────────────────────────────────────────────
+const BOOST_CHANNEL_ID  = process.env.BOOST_CHANNEL_ID  || '1404007396988289065'; // #boosts
+const TICKETS_CHANNEL_ID = process.env.TICKETS_CHANNEL_ID || '1399207405602082816'; // #tickets
+
+// anti-duplicado por si Discord emite varios updates seguidos del mismo user
+const recentBoosters = new Map(); // userId -> timestamp
+
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  try {
+    // empezó a boostear (antes no tenía premiumSince y ahora sí)
+    const startedBoost =
+      (!oldMember.premiumSince && !!newMember.premiumSince) ||
+      (!oldMember.premiumSinceTimestamp && !!newMember.premiumSinceTimestamp);
+
+    if (!startedBoost) return;
+
+    // Debounce 60s por usuario
+    const last = recentBoosters.get(newMember.id);
+    if (last && Date.now() - last < 60_000) return;
+    recentBoosters.set(newMember.id, Date.now());
+
+    // Asegurar conteo fresco
+    await newMember.guild.fetch();
+    const totalBoosts = newMember.guild.premiumSubscriptionCount ?? 0;
+
+    const ch = newMember.guild.channels.cache.get(BOOST_CHANNEL_ID);
+    if (!ch) {
+      console.warn('⚠️ Canal de boosts no encontrado:', BOOST_CHANNEL_ID);
+      return;
+    }
+
+    const msg =
+      `**¡Gracias por boostear ${newMember}!** ` +
+      `Ahora tenemos **${totalBoosts}** boosts. ` +
+      `No olvides reclamar tus recompensas en <#${TICKETS_CHANNEL_ID}>.`;
+
+    await ch.send(msg);
+  } catch (err) {
+    console.error('boost announce error:', err);
+  }
+});
+
 // Carga de slash /commands
 client.commands = new Collection();
 const fs = require('fs');
