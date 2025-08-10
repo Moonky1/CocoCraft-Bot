@@ -381,7 +381,8 @@ client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login er
 const {
   ButtonStyle,
   EmbedBuilder,         // <- asegúrate de tenerlo
-  ChannelType,         // <- ESTE es el que falta
+  ChannelType,
+  ActionRowBuilder,         // <- ESTE es el que falta
   PermissionFlagsBits  // <- si lo usas en permissionOverwrites
 } = require('discord.js');
 
