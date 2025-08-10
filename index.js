@@ -378,7 +378,6 @@ const {
   EmbedBuilder,
   ChannelType,
   PermissionFlagsBits,
-  Events,
 } = require('discord.js');
 
 // Para bloquear pulsaciones simultáneas del botón
