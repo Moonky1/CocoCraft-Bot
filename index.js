@@ -146,6 +146,8 @@ client.on(Events.MessageCreate, async msg => {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas  (fuente + fondo + avatar)
+const { AttachmentBuilder } = require('discord.js');
+const { createCanvas, loadImage, registerFont } = require('canvas');
 const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
 try { registerFont(FONT_PATH, { family: 'DMSansBold' }); }
 catch (e) { console.warn('⚠️ No pude registrar la fuente:', e.message); }
@@ -161,12 +163,12 @@ async function drawWelcome(member) {
   const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
   ctx.drawImage(bg, 0, 0, W, H);
 
-  // Avatar (ligeramente más centrado hacia abajo)
+  // Avatar: más grande y más centrado
   const centerX = W / 2;
-  const centerY = 235;        // ← bajé un poco el Y para “centrarlo un tris” más
-  const avatarR = 92;
-  const ringOuter = 112;
-  const ringInner = 100;
+  const centerY = 260;            // un poco más al centro vertical
+  const avatarR   = 120;          // ↑ tamaño del avatar
+  const ringInner = avatarR + 14; // anillo interior
+  const ringOuter = ringInner + 16; // anillo exterior
 
   // Anillo exterior
   ctx.beginPath();
@@ -183,7 +185,6 @@ async function drawWelcome(member) {
   // Avatar recortado
   const avatarURL = member.user.displayAvatarURL({ extension: 'png', forceStatic: true, size: 512 });
   const avatarImg = await loadImage(avatarURL);
-
   ctx.save();
   ctx.beginPath();
   ctx.arc(centerX, centerY, avatarR, 0, Math.PI * 2);
@@ -200,38 +201,58 @@ async function drawWelcome(member) {
   ctx.fillStyle = '#FFFFFF';
   ctx.shadowColor = 'rgba(0,0,0,0.55)';
   ctx.shadowBlur = 22;
-  ctx.fillText(name, W / 2, 510); // solo el nombre
+  ctx.fillText(name, W / 2, 520); // solo el nombre
 
-  // Sin subtítulo (lo quitaste)
   ctx.shadowBlur = 0;
-
   return canvas.toBuffer('image/png');
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Limpieza de duplicados (AJUSTADA)
-//  • Se ejecuta **antes** de publicar.
-//  • Sólo borra mensajes del BOT, en la ventana indicada.
-//  • Mantiene el **más nuevo** y elimina anteriores.
-async function cleanWelcomeDuplicates(channel, member, windowSec = 300) {
-  const now = Date.now();
-  const messages = await channel.messages.fetch({ limit: 50 }).catch(() => null);
-  if (!messages) return;
+// Anti-duplicados
+const recentWelcomes = new Map();         // memberId -> expiresAt
+const WELCOME_TTL_MS = 20_000;            // 20s
 
-  const mine = messages.filter(m =>
+function wasWelcomedRecently(id) {
+  const t = recentWelcomes.get(id);
+  if (!t) return false;
+  if (Date.now() > t) { recentWelcomes.delete(id); return false; }
+  return true;
+}
+function markWelcomed(id) {
+  recentWelcomes.set(id, Date.now() + WELCOME_TTL_MS);
+}
+
+// ¿Ya hay un mensaje reciente del bot para este miembro?
+async function alreadyInChannel(channel, member, windowSec = 45) {
+  const now = Date.now();
+  const msgs = await channel.messages.fetch({ limit: 25 }).catch(() => null);
+  if (!msgs) return false;
+
+  const hit = msgs.find(m =>
+    m.author.id === client.user.id &&
+    (m.content.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
+    (now - m.createdTimestamp) <= windowSec * 1000
+  );
+  return Boolean(hit);
+}
+
+// Limpieza de duplicados: deja el más nuevo de este bot para ese miembro
+async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
+  const now = Date.now();
+  const msgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!msgs) return;
+
+  const mine = [...msgs.values()].filter(m =>
     m.author.id === client.user.id &&
     (m.content.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
     (now - m.createdTimestamp) <= windowSec * 1000
   );
 
-  if (!mine.size) return;
-
-  // ordena nuevo → viejo (para conservar el más reciente)
-  const sorted = [...mine.values()].sort((a, b) => b.createdTimestamp - a.createdTimestamp);
-
-  // Mantener el más nuevo (index 0), borrar los demás
-  for (let i = 1; i < sorted.length; i++) {
-    await sorted[i].delete().catch(() => {});
+  if (mine.length <= 1) return;
+  // Ordena por fecha DESC y elimina del índice 1 en adelante
+  mine.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+  for (let i = 1; i < mine.length; i++) {
+    await mine[i].delete().catch(() => {});
   }
 }
 
@@ -242,22 +263,24 @@ client.on('guildMemberAdd', async member => {
     const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
     if (!canal) return console.error('❌ Welcome channel not found');
 
-    // 1) Limpia duplicados previos (de otras instancias) ANTES de publicar
-    await cleanWelcomeDuplicates(canal, member, 300);
+    // si otra instancia lo acaba de saludar, no dupliques
+    if (wasWelcomedRecently(member.id)) return;
+    if (await alreadyInChannel(canal, member, 45)) { markWelcomed(member.id); return; }
 
-    // 2) Mensaje de texto
-    await canal.send(
-      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\ Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
-    );
+    // Construye la imagen
+    const buffer = await drawWelcome(member);
+    const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
 
-    // 3) Imagen
-    try {
-      const buffer = await drawWelcome(member);
-      const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
-      await canal.send({ files: [file] });
-    } catch (err) {
-      console.error('⚠️ Canvas error:', err);
-    }
+    // Publica **un solo** mensaje (texto + imagen)
+    const content =
+      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
+
+    await canal.send({ content, files: [file] });
+
+    // Marca en memoria y limpia posibles duplicados viejos
+    markWelcomed(member.id);
+    await cleanWelcomeDuplicates(canal, member, 600); // 10 min
+
   } catch (e) {
     console.error('welcome error', e);
   }
