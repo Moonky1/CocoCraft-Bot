@@ -58,8 +58,8 @@ module.exports = {
 
     // Thumbnail local
     const file = new AttachmentBuilder(
-      path.join(__dirname, '..', 'assets', 'images', 'suggest-thumb.png')
-    ).setName('suggest-thumb.png');
+      path.join(__dirname, '..', 'assets', 'images', 'thumb.png')
+    ).setName('thumb.png');
 
     const embed = new EmbedBuilder()
       .setColor(0xd18be3)
@@ -68,7 +68,7 @@ module.exports = {
         iconURL: interaction.user.displayAvatarURL({ extension: 'png', size: 128 }),
       })
       .setDescription(mensaje)
-      .setThumbnail('attachment://suggest-thumb.png');
+      .setThumbnail('attachment://thumb.png');
 
     // Respuesta efímera (se borrará luego)
     await interaction.deferReply({ ephemeral: true });
