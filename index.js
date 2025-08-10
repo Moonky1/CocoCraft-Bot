@@ -151,73 +151,82 @@ client.once('ready', async () => {
   setInterval(updateChannelNames, 60 * 1000);
 });
 
-// ─── Welcome Handler con imagen y dedupe ────────────────────────────────────────
-if (RUN_WELCOME) {
-  client.removeAllListeners('guildMemberAdd');
+// ─── Welcome Handler with Canvas (con anti-duplicados) ─────────────────────────
+const WELCOME_ENABLED = (process.env.RUN_WELCOME || 'true').toLowerCase() === 'true';
 
-  client.on('guildMemberAdd', async member => {
-    // anti-duplicados
-    const key = `${member.guild.id}:${member.id}`;
-    if (!shouldWelcomeOnce(key)) return;
+// Pequeño candado en memoria para ignorar eventos repetidos
+const welcomeDebounce = new Map(); // key: guildId:userId -> timestamp
+
+function shouldSendWelcome(guildId, userId, windowMs = 20000) {
+  const key = `${guildId}:${userId}`;
+  const now = Date.now();
+  const last = welcomeDebounce.get(key) || 0;
+  if (now - last < windowMs) return false;
+  welcomeDebounce.set(key, now);
+  return true;
+}
+
+if (WELCOME_ENABLED) {
+  client.removeAllListeners('guildMemberAdd');
+  client.on('guildMemberAdd', async (member) => {
+    // anti-duplicados: si otra instancia lo acaba de mandar, salimos
+    if (!shouldSendWelcome(member.guild.id, member.id)) return;
 
     console.log('🔔 New member:', member.user.tag);
 
     const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
     if (!canal) return console.error('❌ Welcome channel not found');
 
-    // 1) Mensaje de texto
-    try {
-      await canal.send(
-        `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
-      );
-    } catch (e) {
-      console.warn('⚠️ No se pudo enviar el texto de bienvenida:', e.message);
-    }
+    // Texto de bienvenida
+    await canal.send(
+      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+      `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+    );
 
-    // 2) Imagen de bienvenida (fondo + avatar + nombre)
+    // Imagen de bienvenida
     try {
       const width = 1280, height = 720;
       const canvas = createCanvas(width, height);
       const ctx = canvas.getContext('2d');
 
       // Fondo
-      const bgPath = path.join(__dirname, 'assets', 'images', 'welcome-bg.png');
-      const bg = await loadImage(bgPath);
+      const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
       ctx.drawImage(bg, 0, 0, width, height);
+
+      // Círculo del avatar (más centrado)
+      const AVATAR_R = 120;
+      const AVATAR_X = width / 2;
+      const AVATAR_Y = 190;
+
+      ctx.beginPath();
+      ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R + 18, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff6fa9';
+      ctx.fill();
 
       // Avatar
       const avatarURL = member.user.displayAvatarURL({ extension: 'png', size: 256 });
       const avatarImg = await loadImage(avatarURL);
-      const avatarSize = 230;
-      const avatarX = width / 2 - avatarSize / 2;
-      const avatarY = 110;
-
-      // círculo de avatar con borde
-      const borderRadius = (avatarSize / 2) + 18;
-      const centerX = width / 2;
-      const centerY = avatarY + avatarSize / 2;
-
-      // borde
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, borderRadius, 0, Math.PI * 2);
-      ctx.fillStyle = '#f06db3';
-      ctx.fill();
-
-      // máscara circular para el avatar
       ctx.save();
       ctx.beginPath();
-      ctx.arc(centerX, centerY, avatarSize / 2, 0, Math.PI * 2);
+      ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R, 0, Math.PI * 2);
       ctx.closePath();
       ctx.clip();
-      ctx.drawImage(avatarImg, avatarX, avatarY, avatarSize, avatarSize);
+      ctx.drawImage(avatarImg, AVATAR_X - AVATAR_R, AVATAR_Y - AVATAR_R, AVATAR_R * 2, AVATAR_R * 2);
       ctx.restore();
 
-      // Nombre grande (fuente DMSans)
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.font = 'bold 96px "DMSans"';
-      ctx.fillText(member.displayName || member.user.username, width / 2, 560); // solo nombre
+      // Nombre (solo el nombre, sin subtítulo)
+      const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
+      try { registerFont(FONT_PATH, { family: 'DMSans' }); } catch {}
 
+      ctx.fillStyle = 'white';
+      ctx.shadowColor = 'rgba(0,0,0,0.45)';
+      ctx.shadowBlur = 16;
+      ctx.textAlign = 'center';
+
+      ctx.font = '72px DMSans';
+      ctx.fillText(member.displayName || member.user.username, width / 2, 420);
+
+      // Enviar imagen
       const buffer = canvas.toBuffer('image/png');
       await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
     } catch (err) {
@@ -225,8 +234,9 @@ if (RUN_WELCOME) {
     }
   });
 } else {
-  console.log('👋 Welcome deshabilitado (RUN_WELCOME=false)');
+  console.log('ℹ️ RUN_WELCOME=false → módulo de bienvenida desactivado en esta instancia.');
 }
+
 
 // ─── Auto-limpieza & verificación en canal de verificación ──────────────────────
 const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
