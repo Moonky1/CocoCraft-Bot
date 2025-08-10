@@ -265,7 +265,7 @@ client.on('guildMemberAdd', async member => {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // READY
-client.once('ready', async () => {
+client.once('ready', () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
@@ -273,8 +273,18 @@ client.once('ready', async () => {
     activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
   });
 
-  await updateChannelNames();
-  setInterval(updateChannelNames, 60_000);
+  // Bucle robusto
+  const tick = async () => {
+    try {
+      await updateChannelNames();
+    } catch (e) {
+      console.error('❌ updateChannelNames failed:', e);
+    }
+  };
+
+  // corre al iniciar y luego cada 60s
+  tick();
+  setInterval(tick, 60_000);
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
