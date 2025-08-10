@@ -11,30 +11,23 @@ const {
   Events,
   Collection
 } = require('discord.js');
+
+// ⬇ Canvas + fuente
 const { createCanvas, loadImage, registerFont } = require('canvas');
+registerFont(
+  path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf'),
+  { family: 'DMSans', weight: '800' }
+);
+
 const { status } = require('minecraft-server-util');
-const fs = require('fs');
 
-// ──────────────────────────── Fuente DM Sans ─────────────────────────────
-// Asegúrate de tener este archivo:
-//   assets/fonts/DMSans-Bold.ttf
-try {
-  registerFont(
-    path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf'),
-    { family: 'DMSans', weight: '800' }
-  );
-  console.log('🆗 Fuente DMSans registrada');
-} catch (e) {
-  console.warn('⚠️ No se pudo registrar la fuente DMSans:', e.message);
-}
-
-// ─── Keep-Alive HTTP Server ─────────────────────────────────────────────
+// ─── Keep-Alive HTTP Server ─────────────────────────────────────────────────────
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 Bot alive'));
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
-// ─── Discord Client ─────────────────────────────────────────────────────
+// ─── Discord Client ─────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -44,9 +37,10 @@ const client = new Client({
   ]
 });
 
-// ─── Carga de slash commands desde ./commands ───────────────────────────
+// ─── Carga de slash-commands (./commands) ───────────────────────────────────────
 client.commands = new Collection();
 try {
+  const fs = require('fs');
   const commandsPath = path.join(__dirname, 'commands');
   if (fs.existsSync(commandsPath)) {
     const files = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
@@ -58,13 +52,13 @@ try {
     }
     console.log(`✅ Cargados ${client.commands.size} comandos.`);
   } else {
-    console.log('⚠️ Carpeta ./commands no encontrada (se omite).');
+    console.log('⚠️ Carpeta ./commands no encontrada (se omitió carga de comandos).');
   }
 } catch (e) {
   console.error('⚠️ Error cargando comandos:', e);
 }
 
-// ─── Handler de slash commands ──────────────────────────────────────────
+// ─── Handler de slash-commands ──────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const cmd = client.commands.get(interaction.commandName);
@@ -83,9 +77,11 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// ─── Update “Status” & “Server” Channel Names ───────────────────────────
+// ─── Update “Status” & “Server” Channel Names ────────────────────────────────────
+// (Dejé tu lógica general; si ya usas RCON/otro método, puedes sustituir dentro)
 async function updateChannelNames() {
-  console.log('🔧 ENV',
+  console.log(
+    '🔧 ENV',
     'GUILD_ID=', process.env.GUILD_ID,
     'STATUS_ID=', process.env.CHANNEL_STATUS_ID,
     'SERVER_ID=', process.env.CHANNEL_SERVER_ID
@@ -101,47 +97,21 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // Emoji por defecto
-  let statusEmoji = '🔴';
-
-  // Opción RCON para discernir whitelist ON/OFF
-  const RCON_HOST = process.env.RCON_HOST;
-  const RCON_PORT = Number(process.env.RCON_PORT || 0);
-  const RCON_PASS = process.env.RCON_PASSWORD;
-
-  if (RCON_HOST && RCON_PORT && RCON_PASS) {
-    try {
-      const rcon = await Rcon.connect({
-        host: RCON_HOST,
-        port: RCON_PORT,
-        password: RCON_PASS,
-        timeout: 3000
-      });
-      // Si conecta, el server está ON. Revisamos whitelist
-      let wl = '';
-      try {
-        wl = await rcon.send('whitelist status'); // Paper/Spigot
-      } catch { /* ignorar */ }
-      await rcon.end().catch(() => {});
-      if (/on/i.test(wl)) statusEmoji = '🟡'; // whitelist activa
-      else statusEmoji = '🟢'; // abierta
-    } catch {
-      statusEmoji = '🔴';      // server off o RCON caído
-    }
-  }
-
-  // Jugadores online (consulta query)
+  // Estado por defecto (naranja)
+  let statusEmoji = '🟠';
   let mcCount = 0;
+
   try {
     const mcStatus = await status(
       process.env.MC_HOST,
       parseInt(process.env.MC_PORT, 10),
       { timeout: 1500 }
     );
-    mcCount = mcStatus.players.online;
+    mcCount = mcStatus.players.online ?? 0;
+    statusEmoji = '🟢'; // online
   } catch (err) {
     console.warn('⚠️ MC query failed:', err.message);
-    // dejamos mcCount = 0
+    statusEmoji = '🔴'; // caído
   }
 
   try {
@@ -153,7 +123,7 @@ async function updateChannelNames() {
   }
 }
 
-// ─── On Ready ───────────────────────────────────────────────────────────
+// ─── On Ready ───────────────────────────────────────────────────────────────────
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
@@ -166,7 +136,7 @@ client.once('ready', async () => {
   setInterval(updateChannelNames, 60 * 1000);
 });
 
-// ─── Bienvenida con Canvas (Avatar + DM Sans) ───────────────────────────
+// ─── Welcome Handler with Canvas ────────────────────────────────────────────────
 client.removeAllListeners('guildMemberAdd');
 client.on('guildMemberAdd', async member => {
   console.log('🔔 New member:', member.user.tag);
@@ -176,23 +146,22 @@ client.on('guildMemberAdd', async member => {
 
   // Mensaje de texto
   await canal.send(
-    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-    `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
   );
 
-  // Imagen de bienvenida
+  // Imagen de bienvenida (DMSans + avatar centrado, sin subtítulo)
   try {
     const width = 1280, height = 720;
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Fondo: assets/images/welcome-bg.png
+    // Fondo
     const bgPath = path.join(__dirname, 'assets', 'images', 'welcome-bg.png');
     const bg = await loadImage(bgPath);
     ctx.drawImage(bg, 0, 0, width, height);
 
     // Helper: encajar texto a un ancho máximo
-    const fitText = (text, maxW, start = 96, min = 36, weight = 800) => {
+    const fitText = (text, maxW, start = 86, min = 40, weight = 800) => {
       let size = start;
       do {
         ctx.font = `${weight} ${size}px DMSans, Arial`;
@@ -201,17 +170,17 @@ client.on('guildMemberAdd', async member => {
       return size;
     };
 
-    // Avatar circular con aro
+    // Avatar circular (más centrado)
     const avatarUrl = member.user.displayAvatarURL({ extension: 'png', size: 512 });
     const res = await fetch(avatarUrl);
     const avatarBuf = Buffer.from(await res.arrayBuffer());
     const avatarImg = await loadImage(avatarBuf);
 
     const cx = width / 2;
-    const cy = 200;
+    const cy = Math.round(height * 0.38); // centrado vertical un poco más abajo
     const r  = 140;
 
-    // Aro exterior
+    // Aro
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r + 16, 0, Math.PI * 2);
@@ -230,7 +199,7 @@ client.on('guildMemberAdd', async member => {
     ctx.drawImage(avatarImg, cx - r, cy - r, r * 2, r * 2);
     ctx.restore();
 
-    // Nombre (grande)
+    // SOLO el nombre grande
     const name = member.displayName || member.user.username;
     const maxNameWidth = width - 240;
     const nameSize = fitText(name, maxNameWidth, 86, 40, 800);
@@ -242,14 +211,7 @@ client.on('guildMemberAdd', async member => {
     ctx.shadowOffsetY = 2;
 
     ctx.font = `800 ${nameSize}px DMSans, Arial`;
-    ctx.fillText(name, width / 2, height - 120);
-
-    // Subtítulo
-    ctx.shadowBlur = 12;
-    ctx.globalAlpha = 0.95;
-    ctx.font = `700 36px DMSans, Arial`;
-    ctx.fillText(`Bienvenido a ${member.guild.name} | Minecraft Server`, width / 2, height - 60);
-    ctx.globalAlpha = 1;
+    ctx.fillText(name, width / 2, height - 90);
 
     const buffer = canvas.toBuffer('image/png');
     await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
@@ -258,7 +220,7 @@ client.on('guildMemberAdd', async member => {
   }
 });
 
-// ─── Auto-limpieza & verificación por canal ─────────────────────────────
+// ─── Auto-limpieza & verificación (canal de verificación) ──────────────────────
 const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
 
 async function tempMsg(channel, content, ms = 7000) {
@@ -267,16 +229,17 @@ async function tempMsg(channel, content, ms = 7000) {
   return m;
 }
 
-// Simulación de verificación (sustituye por tu lógica real / API)
+// Simulación de verificación (sustituye por tu API/DB)
 async function verifyWithServer(discordId, code) {
-  await new Promise(r => setTimeout(r, 400));
-  return /^\d{4,8}$/.test(code);
+  await new Promise(r => setTimeout(r, 400)); // latencia simulada
+  return /^\d{4,8}$/.test(code);              // demo: acepta 4–8 dígitos
 }
 
 client.on(Events.MessageCreate, async msg => {
   if (!msg.guild || msg.author.bot) return;
   if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
 
+  // borra SIEMPRE el mensaje del usuario para mantener el canal limpio
   try { await msg.delete(); } catch {}
 
   const match = msg.content.match(/\b\d{4,8}\b/);
@@ -286,7 +249,7 @@ client.on(Events.MessageCreate, async msg => {
       `❌ ${msg.member} envía **solo tu código** generado con \`/discord link\` en el servidor.`,
       7000
     );
-  }
+    }
 
   const code = match[0];
   try {
@@ -297,7 +260,7 @@ client.on(Events.MessageCreate, async msg => {
         `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`,
         7000
       );
-      // Ejemplo para asignar un rol tras verificar:
+      // Aquí puedes asignar roles devueltos por tu verificación
       // const role = msg.guild.roles.cache.get('ROL_ID');
       // if (role) await msg.member.roles.add(role).catch(()=>{});
     } else {
@@ -317,6 +280,6 @@ client.on(Events.MessageCreate, async msg => {
   }
 });
 
-// ─── Login ──────────────────────────────────────────────────────────────
+// ─── Login ──────────────────────────────────────────────────────────────────────
 client.login(process.env.DISCORD_TOKEN)
   .catch(err => console.error('❌ Login error:', err));
