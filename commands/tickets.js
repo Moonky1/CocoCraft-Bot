@@ -42,7 +42,7 @@ module.exports = {
 
     // embed + botón "Abrir ticket"
     const embed = new EmbedBuilder()
-      .setColor(0x00b3ff)
+      .setColor(0x5ed1da)
       .setAuthor({ name: 'Soporte • Tickets' })
       .setDescription([
         '¿Necesitas ayuda del staff? Abre un ticket para que podamos atenderte de forma privada.',
