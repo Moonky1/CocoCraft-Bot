@@ -3,31 +3,28 @@ const {
   SlashCommandBuilder,
   EmbedBuilder,
   AttachmentBuilder,
+  PermissionFlagsBits,
 } = require('discord.js');
 const path = require('path');
 
-// Canal donde se publican las sugerencias
-const SUGGEST_CHANNEL_ID = process.env.SUGGEST_CHANNEL_ID || 'PON_AQUI_TU_CANAL_ID';
+// Canal fijo de sugerencias (publica SIEMPRE ahí)
+const SUGGEST_CHANNEL_ID = '1399206595128463521';
 
-// Emojis (los tuyos, con fallback a .env si los pones allí)
-const EMOJI_APPROVE = process.env.SUGGEST_EMOJI_APPROVE || 'a:check:1403993546901684265';   // animado
-const EMOJI_NEUTRAL = process.env.SUGGEST_EMOJI_NEUTRAL || 'jum:1403993593579835422';       // estático
-const EMOJI_DENY    = process.env.SUGGEST_EMOJI_DENY    || 'a:denied:1403993575439728783';  // animado
+// Tus emojis (custom)
+const EMOJI_APPROVE = 'a:check:1403993546901684265';   // animado
+const EMOJI_NEUTRAL = 'jum:1403993593579835422';       // estático
+const EMOJI_DENY    = 'a:denied:1403993575439728783';  // animado
 
-// Pequeña ayuda para reaccionar con fallback si el emoji custom falla
+// Helper: intenta reaccionar con custom, si falla usa unicode
 async function reactTry(message, emoji, fallback) {
-  try {
-    await message.react(emoji);            // p.ej. 'a:check:ID' o 'name:ID'
-  } catch {
-    try { await message.react(fallback); } // p.ej. '✅', '🟨', '❌'
-    catch { /* ignorar */ }
-  }
+  try { await message.react(emoji); }
+  catch { try { await message.react(fallback); } catch {} }
 }
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('suggest')
-    .setDescription('Envía una sugerencia a la comunidad')
+    .setDescription('Envía una sugerencia para el servidor')
     .addStringOption(opt =>
       opt.setName('mensaje')
         .setDescription('Tu sugerencia')
@@ -37,30 +34,30 @@ module.exports = {
   async execute(interaction) {
     const mensaje = interaction.options.getString('mensaje', true).slice(0, 2000);
 
-    // Verifica canal de sugerencias
+    // Busca el canal de sugerencias
     const canal = interaction.guild.channels.cache.get(SUGGEST_CHANNEL_ID);
     if (!canal) {
       return interaction.reply({
-        content: '❌ No se encontró el canal de sugerencias. Revisa `SUGGEST_CHANNEL_ID`.',
+        content: '❌ No encontré el canal de sugerencias. Revisa el ID.',
         ephemeral: true,
       });
     }
 
-    // Obliga a usar el comando en ese canal
-    if (interaction.channelId !== canal.id) {
+    // Permisos mínimos en el canal destino
+    const me = interaction.guild.members.me;
+    const perms = canal.permissionsFor(me);
+    if (!perms?.has([PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks, PermissionFlagsBits.AddReactions])) {
       return interaction.reply({
-        content: `❗ Usa este comando en <#${canal.id}>.`,
+        content: '❌ No tengo permisos para enviar embeds o añadir reacciones en #sugerencias.',
         ephemeral: true,
       });
     }
 
-    // Prepara el thumbnail local (assets/images/suggest-thumb.png)
-    // Nota: este archivo debe existir en el repo.
+    // Thumbnail local: assets/images/suggest-thumb.png
     const file = new AttachmentBuilder(
-      path.join(__dirname, '..', 'assets', 'images', 'suggest-thumb.png'),
+      path.join(__dirname, '..', 'assets', 'images', 'suggest-thumb.png')
     ).setName('suggest-thumb.png');
 
-    // Embed
     const embed = new EmbedBuilder()
       .setColor(0xd18be3)
       .setAuthor({
@@ -68,19 +65,20 @@ module.exports = {
         iconURL: interaction.user.displayAvatarURL({ extension: 'png', size: 128 }),
       })
       .setDescription(mensaje)
-      .setThumbnail('attachment://suggest-thumb.png'); // usa el adjunto local
+      .setThumbnail('attachment://suggest-thumb.png');
 
+    // Respuesta ephem mientras publicamos
     await interaction.deferReply({ ephemeral: true });
 
-    // Publica en el canal
     let msg;
     try {
       msg = await canal.send({ embeds: [embed], files: [file] });
     } catch (err) {
       console.error('suggest send error:', err);
-      return interaction.editReply('❌ No pude publicar tu sugerencia. Revisa permisos del bot en el canal.');
+      return interaction.editReply('❌ No pude publicar tu sugerencia en #sugerencias.');
     }
 
-    await interaction.editReply('✅ ¡Sugerencia enviada!');
+    // Aviso ephem con link al mensaje publicado
+    await interaction.editReply(`✅ ¡Sugerencia enviada en <#${SUGGEST_CHANNEL_ID}>! ${msg.url}`);
   },
 };
