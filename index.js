@@ -3,58 +3,41 @@ require('dotenv').config();
 
 const express = require('express');
 const path = require('path');
-const { Rcon } = require('rcon-client');
 const {
   Client,
   GatewayIntentBits,
   ActivityType,
   Events,
-  Collection
+  Collection,
+  AttachmentBuilder,
 } = require('discord.js');
-const { createCanvas, loadImage, registerFont } = require('canvas');
+const {
+  createCanvas,
+  loadImage,
+  registerFont,
+} = require('canvas');
 const { status } = require('minecraft-server-util');
 
-// ─── Keep-Alive HTTP Server ─────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Keep-Alive (Railway)
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 Bot alive'));
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
-// ─── Discord Client ─────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Discord client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-// ─── Carga de fonts (para la imagen de bienvenida) ──────────────────────────────
-try {
-  registerFont(
-    path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf'),
-    { family: 'DMSans', weight: '700' }
-  );
-  console.log('🅰️  DMSans-Bold registrado');
-} catch (e) {
-  console.warn('⚠️ No se pudo registrar la fuente DMSans-Bold:', e.message);
-}
-
-// ─── Flags y anti-duplicados de bienvenida ──────────────────────────────────────
-const RUN_WELCOME = (process.env.RUN_WELCOME || 'true').toLowerCase() === 'true';
-console.log('RUN_WELCOME =', RUN_WELCOME, 'env from', process.env.RAILWAY_SERVICE_NAME || 'local');
-
-// Pequeño dedupe en memoria (8s)
-const recentWelcomes = new Set();
-function shouldWelcomeOnce(key, ms = 8000) {
-  if (recentWelcomes.has(key)) return false;
-  recentWelcomes.add(key);
-  setTimeout(() => recentWelcomes.delete(key), ms);
-  return true;
-}
-
-// ─── Carga de slash commands desde ./commands ───────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Carga de slash commands (./commands/*.js)
 client.commands = new Collection();
 try {
   const fs = require('fs');
@@ -69,13 +52,12 @@ try {
     }
     console.log(`✅ Cargados ${client.commands.size} comandos.`);
   } else {
-    console.log('⚠️ Carpeta ./commands no encontrada (se omitió carga de comandos).');
+    console.log('⚠️ Carpeta ./commands no encontrada.');
   }
 } catch (e) {
   console.error('⚠️ Error cargando comandos:', e);
 }
 
-// ─── Handler de slash commands ──────────────────────────────────────────────────
 client.on(Events.InteractionCreate, async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const cmd = client.commands.get(interaction.commandName);
@@ -94,7 +76,8 @@ client.on(Events.InteractionCreate, async interaction => {
   }
 });
 
-// ─── Update “Status” & “Server” Channel Names ───────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Actualizar nombres de canales "Status" y "Server"
 async function updateChannelNames() {
   console.log('🔧 ENV',
     'GUILD_ID=', process.env.GUILD_ID,
@@ -112,7 +95,6 @@ async function updateChannelNames() {
     return console.error('❌ One or both channels not found');
   }
 
-  // Emoji por disponibilidad MC (simple)
   let statusEmoji = '🟢';
   let mcCount = 0;
 
@@ -122,8 +104,7 @@ async function updateChannelNames() {
       parseInt(process.env.MC_PORT, 10),
       { timeout: 1500 }
     );
-    mcCount = mcStatus.players.online;
-    statusEmoji = '🟢';
+    mcCount = mcStatus.players.online ?? 0;
   } catch (err) {
     console.warn('⚠️ MC query failed:', err.message);
     statusEmoji = '🔴';
@@ -138,129 +119,42 @@ async function updateChannelNames() {
   }
 }
 
-// ─── On Ready ───────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Ready
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
   client.user.setPresence({
     status: 'online',
-    activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
+    activities: [{ name: 'CocoCraft', type: ActivityType.Playing }],
   });
 
   await updateChannelNames();
   setInterval(updateChannelNames, 60 * 1000);
 });
 
-// ─── Welcome Handler with Canvas (con anti-duplicados) ─────────────────────────
-const WELCOME_ENABLED = (process.env.RUN_WELCOME || 'true').toLowerCase() === 'true';
-
-// Pequeño candado en memoria para ignorar eventos repetidos
-const welcomeDebounce = new Map(); // key: guildId:userId -> timestamp
-
-function shouldSendWelcome(guildId, userId, windowMs = 20000) {
-  const key = `${guildId}:${userId}`;
-  const now = Date.now();
-  const last = welcomeDebounce.get(key) || 0;
-  if (now - last < windowMs) return false;
-  welcomeDebounce.set(key, now);
-  return true;
-}
-
-if (WELCOME_ENABLED) {
-  client.removeAllListeners('guildMemberAdd');
-  client.on('guildMemberAdd', async (member) => {
-    // anti-duplicados: si otra instancia lo acaba de mandar, salimos
-    if (!shouldSendWelcome(member.guild.id, member.id)) return;
-
-    console.log('🔔 New member:', member.user.tag);
-
-    const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
-    if (!canal) return console.error('❌ Welcome channel not found');
-
-    // Texto de bienvenida
-    await canal.send(
-      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
-      `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
-    );
-
-    // Imagen de bienvenida
-    try {
-      const width = 1280, height = 720;
-      const canvas = createCanvas(width, height);
-      const ctx = canvas.getContext('2d');
-
-      // Fondo
-      const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
-      ctx.drawImage(bg, 0, 0, width, height);
-
-      // Círculo del avatar (más centrado)
-      const AVATAR_R = 120;
-      const AVATAR_X = width / 2;
-      const AVATAR_Y = 190;
-
-      ctx.beginPath();
-      ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R + 18, 0, Math.PI * 2);
-      ctx.fillStyle = '#ff6fa9';
-      ctx.fill();
-
-      // Avatar
-      const avatarURL = member.user.displayAvatarURL({ extension: 'png', size: 256 });
-      const avatarImg = await loadImage(avatarURL);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(avatarImg, AVATAR_X - AVATAR_R, AVATAR_Y - AVATAR_R, AVATAR_R * 2, AVATAR_R * 2);
-      ctx.restore();
-
-      // Nombre (solo el nombre, sin subtítulo)
-      const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
-      try { registerFont(FONT_PATH, { family: 'DMSans' }); } catch {}
-
-      ctx.fillStyle = 'white';
-      ctx.shadowColor = 'rgba(0,0,0,0.45)';
-      ctx.shadowBlur = 16;
-      ctx.textAlign = 'center';
-
-      ctx.font = '72px DMSans';
-      ctx.fillText(member.displayName || member.user.username, width / 2, 420);
-
-      // Enviar imagen
-      const buffer = canvas.toBuffer('image/png');
-      await canal.send({ files: [{ attachment: buffer, name: 'bienvenida.png' }] });
-    } catch (err) {
-      console.error('⚠️ Canvas error:', err);
-    }
-  });
-} else {
-  console.log('ℹ️ RUN_WELCOME=false → módulo de bienvenida desactivado en esta instancia.');
-}
-
-
-// ─── Auto-limpieza & verificación en canal de verificación ──────────────────────
-const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
-
+// ───────────────────────────────────────────────────────────────────────────────
+// Herramientas generales
 async function tempMsg(channel, content, ms = 7000) {
   const m = await channel.send({ content });
   setTimeout(() => m.delete().catch(() => {}), ms);
   return m;
 }
 
-// Simulación de verificación (sustituye por tu API/DB/plugin)
+// ───────────────────────────────────────────────────────────────────────────────
+// Verificación (limpieza del canal y feedback)
+const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
 async function verifyWithServer(discordId, code) {
-  await new Promise(r => setTimeout(r, 400)); // latencia simulada
-  return /^\d{4,8}$/.test(code);              // demo: acepta 4-8 dígitos
+  // TODO: Sustituir por tu verificación real
+  await new Promise(r => setTimeout(r, 300));
+  return /^\d{4,8}$/.test(code);
 }
-
 client.on(Events.MessageCreate, async msg => {
   if (!msg.guild || msg.author.bot) return;
   if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
 
-  // borra SIEMPRE el mensaje del usuario para mantener el canal limpio
   try { await msg.delete(); } catch {}
 
-  // intenta capturar un código 4–8 dígitos
   const match = msg.content.match(/\b\d{4,8}\b/);
   if (!match) {
     return tempMsg(
@@ -279,9 +173,6 @@ client.on(Events.MessageCreate, async msg => {
         `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`,
         7000
       );
-      // Aquí puedes asignar roles devueltos por tu verificación:
-      // const role = msg.guild.roles.cache.get('ROL_ID');
-      // if (role) await msg.member.roles.add(role).catch(()=>{});
     } else {
       await tempMsg(
         msg.channel,
@@ -299,6 +190,123 @@ client.on(Events.MessageCreate, async msg => {
   }
 });
 
-// ─── Login ──────────────────────────────────────────────────────────────────────
+// ───────────────────────────────────────────────────────────────────────────────
+// Bienvenida con Canvas (sin RUN_WELCOME y con anti-duplicado a nivel canal)
+const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
+try { registerFont(FONT_PATH, { family: 'DMSans' }); } catch (e) {}
+
+async function drawWelcome(member) {
+  const width = 1280, height = 720;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d');
+
+  // Fondo
+  const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
+  ctx.drawImage(bg, 0, 0, width, height);
+
+  // Avatar centrado
+  const AVATAR_R = 120;
+  const AVATAR_X = width / 2;
+  const AVATAR_Y = 190;
+
+  // Borde rosado
+  ctx.beginPath();
+  ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R + 18, 0, Math.PI * 2);
+  ctx.fillStyle = '#ff6fa9';
+  ctx.fill();
+
+  // Avatar
+  const avatarURL = member.user.displayAvatarURL({ extension: 'png', size: 256 });
+  const avatarImg = await loadImage(avatarURL);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(AVATAR_X, AVATAR_Y, AVATAR_R, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.drawImage(avatarImg, AVATAR_X - AVATAR_R, AVATAR_Y - AVATAR_R, AVATAR_R * 2, AVATAR_R * 2);
+  ctx.restore();
+
+  // Nombre grande
+  const name = member.displayName || member.user.username;
+  ctx.fillStyle = 'white';
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 16;
+  ctx.textAlign = 'center';
+  ctx.font = '84px DMSans';
+  ctx.fillText(name, width / 2, 430);
+
+  return canvas.toBuffer('image/png');
+}
+
+/**
+ * ¿Ya publicamos bienvenida para este user hace poco?
+ * Revisa los últimos mensajes del canal (cross-instancia).
+ */
+async function alreadyWelcomed(channel, member, windowSec = 45) {
+  const now = Date.now();
+  const msgs = await channel.messages.fetch({ limit: 40 }).catch(() => null);
+  if (!msgs) return false;
+
+  for (const m of msgs.values()) {
+    if (m.author.id !== client.user.id) continue;
+    // Si el mensaje menciona al usuario o tiene imagen nuestra
+    const mentionsUser = m.content?.includes(`<@${member.id}>`);
+    const isRecent = now - m.createdTimestamp < windowSec * 1000;
+    if (!isRecent) continue;
+    if (mentionsUser || m.attachments.size > 0) return true;
+  }
+  return false;
+}
+
+/** Limpia duplicados si se coló más de uno por condiciones de carrera. */
+async function cleanWelcomeDuplicates(channel, member, windowSec = 120) {
+  const msgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
+  if (!msgs) return;
+  const mine = [];
+  const now = Date.now();
+
+  for (const m of msgs.values()) {
+    if (m.author.id !== client.user.id) continue;
+    const isRecent = now - m.createdTimestamp < windowSec * 1000;
+    if (!isRecent) continue;
+    if (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) {
+      mine.push(m);
+    }
+  }
+  // Ordenar por más antiguo primero, dejar el primero y borrar el resto
+  mine.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  for (let i = 1; i < mine.length; i++) {
+    mine[i].delete().catch(() => {});
+  }
+}
+
+client.removeAllListeners('guildMemberAdd');
+client.on('guildMemberAdd', async (member) => {
+  const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
+  if (!canal) return console.error('❌ Welcome channel not found');
+
+  // Guard cross-instancia: si ya hay bienvenida reciente, no publiques.
+  if (await alreadyWelcomed(canal, member)) return;
+
+  // Texto
+  await canal.send(
+    `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`
+  );
+
+  // Imagen
+  try {
+    const buffer = await drawWelcome(member);
+    const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
+    await canal.send({ files: [file] });
+  } catch (err) {
+    console.error('⚠️ Canvas error:', err);
+  }
+
+  // Limpieza de duplicados (si otra instancia llegó casi a la vez)
+  setTimeout(() => cleanWelcomeDuplicates(canal, member).catch(() => {}), 6000);
+});
+
+// ───────────────────────────────────────────────────────────────────────────────
+// Login
 client.login(process.env.DISCORD_TOKEN)
   .catch(err => console.error('❌ Login error:', err));
