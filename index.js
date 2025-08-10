@@ -58,9 +58,7 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
     }
 
     const msg =
-      `**¡Gracias por boostear ${newMember}!** ` +
-      `Ahora tenemos **${totalBoosts}** boosts. ` +
-      `No olvides reclamar tus recompensas en <#${TICKETS_CHANNEL_ID}>.`;
+      `**¡Gracias por el boost ${newMember}!** Con este ya sumamos **${totalBoosts}** boosts. Canjea tus premios en <#${TICKETS_CHANNEL_ID}>.`;
 
     await ch.send(msg);
   } catch (err) {
