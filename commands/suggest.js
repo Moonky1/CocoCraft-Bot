@@ -62,7 +62,7 @@ module.exports = {
     ).setName('thumb.png');
 
     const embed = new EmbedBuilder()
-      .setColor(0xd18be3)
+      .setColor(0x5ed1da)
       .setAuthor({
         name: `${interaction.user.username}'s suggestion`,
         iconURL: interaction.user.displayAvatarURL({ extension: 'png', size: 128 }),
