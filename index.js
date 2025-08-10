@@ -370,196 +370,144 @@ client.once('ready', () => {
 // LOGIN
 client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login error:', err));
 
-// ───────────────────────────────────────────────────────────────────────
-// Tickets: abrir/cerrar + transcript
-// Requiere en .env:
-//  TICKETS_CHANNEL_ID=1399207405602082816
-//  SUPPORT_CATEGORY_ID=1399207365886345246
-//  LOGS_CHANNEL_ID=1404021560997707856
-//  SUPPORT_ROLE_IDS=ID1,ID2 (opcional, roles con acceso a los tickets)
-
+// ====== TICKETS (panel ya publicado con botón customId: "ticket_open") ======
 const {
-  ButtonStyle,
-  EmbedBuilder,         // <- asegúrate de tenerlo
-  ChannelType,
+  ActionRowBuilder,
   ButtonBuilder,
-  ActionRowBuilder,         // <- ESTE es el que falta
-  PermissionFlagsBits  // <- si lo usas en permissionOverwrites
+  ButtonStyle,
+  EmbedBuilder,
+  ChannelType,
+  PermissionFlagsBits,
+  AttachmentBuilder,
+  Events,
 } = require('discord.js');
 
-// helpers de permisos
-function buildOverwrites(guild, openerId, supportRoleIds = []) {
+// Para bloquear pulsaciones simultáneas del botón
+const openingTickets = new Set();
+
+/** Overwrites para el canal del ticket */
+function buildOverwrites(guild, openerId) {
   const overwrites = [
-    { id: guild.roles.everyone, deny:  [PermissionFlagsBits.ViewChannel] },
-    { id: openerId,             allow: [
+    {
+      id: guild.roles.everyone,
+      deny: [PermissionFlagsBits.ViewChannel],
+    },
+    {
+      id: openerId,
+      allow: [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.AttachFiles
-    ]},
+        PermissionFlagsBits.AttachFiles,
+      ],
+    },
   ];
 
-  for (const rid of supportRoleIds) {
+  // Roles de soporte (opcional): SUPPORT_ROLE_IDS=ID1,ID2
+  const supportIds = (process.env.SUPPORT_ROLE_IDS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  for (const rid of supportIds) {
     overwrites.push({
       id: rid,
       allow: [
         PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.SendMessages
+        PermissionFlagsBits.ManageMessages,
       ],
     });
   }
-
   return overwrites;
 }
 
-
-// busca si el usuario ya tiene un ticket (marcamos el topic con su ID)
-function findExistingTicket(guild, userId) {
-  return guild.channels.cache.find(ch =>
-    ch.type === ChannelType.GuildText &&
-    ch.parentId === process.env.SUPPORT_CATEGORY_ID &&
-    ch.topic === userId
-  );
-}
-
-// transcript simple (TXT) de un canal
-async function makeTranscriptTXT(channel, limit = 1000) {
-  let lastId;
-  const all = [];
-
-  while (all.length < limit) {
-    const options = { limit: 100 };
-    if (lastId) options.before = lastId;
-    const batch = await channel.messages.fetch(options);
-    if (!batch.size) break;
-    all.push(...batch.values());
-    lastId = batch.last().id;
-    if (batch.size < 100) break;
-  }
-
-  // ascendente (viejo → nuevo)
-  all.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-
-  const lines = all.map(m => {
-    const time = new Date(m.createdTimestamp).toISOString().replace('T', ' ').slice(0, 19);
-    const author = `${m.author.tag} (${m.author.id})`;
-    const content = m.cleanContent || '';
-    const attachments = [...m.attachments.values()].map(a => a.url).join(' ');
-    return `[${time}] ${author}: ${content}${attachments ? ` ${attachments}` : ''}`;
-  });
-
-  return Buffer.from(lines.join('\n'), 'utf8');
-}
-
-// handler de botones
+/** Crear ticket al pulsar el botón del panel */
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isButton()) return;
+  if (interaction.customId !== 'ticket_open') return;
 
-  // ABRIR TICKET
-  if (interaction.customId === 'ticket_open') {
-    try {
-      const guild = interaction.guild;
-      const opener = interaction.user;
+  const guild = interaction.guild;
+  const opener = interaction.user;
 
-      // ¿ya tiene uno?
-      const existing = findExistingTicket(guild, opener.id);
-      if (existing) {
-        return interaction.reply({
-          content: `🔎 Ya tienes un ticket abierto: <#${existing.id}>`,
-          ephemeral: true,
-        });
-      }
-
-      // crea el canal
-      const safeName = opener.username
-        .toLowerCase()
-        .replaceAll(' ', '-')
-        .replace(/[^a-z0-9-_]/g, '');
-      const channel = await guild.channels.create({
-        name: `👤│${safeName}`,
-        type: ChannelType.GuildText,
-        parent: process.env.SUPPORT_CATEGORY_ID || null,
-        topic: opener.id, // nos sirve para identificar al dueño
-        permissionOverwrites: buildOverwrites(guild, opener.id),
-      });
-
-      // mensaje inicial + botón cerrar
-      const embed = new EmbedBuilder()
-        .setColor(0x2b2d31)
-        .setDescription([
-          `Gracias por abrir tu ticket, ${opener}.`,
-          'Cuéntanos tu caso con detalle y adjunta la info necesaria.',
-          'Para cerrar el ticket, usa el botón **Cerrar ticket**.',
-        ].join('\n'));
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('ticket_close')
-          .setLabel('Cerrar ticket')
-          .setStyle(ButtonStyle.Danger)
-          .setEmoji('🗑️')
-      );
-
-      await channel.send({ content: `<@${opener.id}>`, embeds: [embed], components: [row] });
-
-      await interaction.reply({
-        content: `✅ Ticket creado: <#${channel.id}>`,
-        ephemeral: true,
-      });
-    } catch (e) {
-      console.error('ticket_open error', e);
-      if (!interaction.replied) {
-        await interaction.reply({ content: '❌ No pude crear tu ticket.', ephemeral: true });
-      }
-    }
+  const parentId = process.env.SUPPORT_CATEGORY_ID; // 1399207365886345246
+  if (!parentId) {
+    await interaction.reply({ content: '❌ Falta SUPPORT_CATEGORY_ID en el .env', ephemeral: true });
     return;
   }
 
-  // CERRAR TICKET
-  if (interaction.customId === 'ticket_close') {
-    try {
-      const channel = interaction.channel;
-      const guild = interaction.guild;
-
-      // solo staff (ManageChannels) o el dueño del ticket (topic) puede cerrar
-      const isOwner = channel.topic === interaction.user.id;
-      const isStaff = interaction.member.permissions.has(PermissionsBitField.Flags.ManageChannels);
-      if (!isOwner && !isStaff) {
-        return interaction.reply({ content: '⛔ No puedes cerrar este ticket.', ephemeral: true });
-      }
-
-      await interaction.deferReply({ ephemeral: true });
-
-      // transcript
-      const txt = await makeTranscriptTXT(channel, 1000);
-      const file = new AttachmentBuilder(txt, { name: `transcript-${channel.name}.txt` });
-
-      // al canal de logs
-      const logs = guild.channels.cache.get(process.env.LOGS_CHANNEL_ID);
-      if (logs) {
-        const embed = new EmbedBuilder()
-          .setColor(0xff4d4d)
-          .setTitle('Ticket cerrado')
-          .setDescription([
-            `Canal: ${channel.name} (${channel.id})`,
-            `Dueño: <@${channel.topic || 'desconocido'}>`,
-            `Cerrado por: ${interaction.user.tag}`,
-          ].join('\n'))
-          .setTimestamp();
-
-        await logs.send({ embeds: [embed], files: [file] });
-      }
-
-      await interaction.editReply({ content: '📁 Transcript enviado a logs. Cerrando canal…' });
-
-      setTimeout(() => channel.delete().catch(() => {}), 2000);
-    } catch (e) {
-      console.error('ticket_close error', e);
-      if (!interaction.replied) {
-        await interaction.reply({ content: '❌ No pude cerrar el ticket.', ephemeral: true });
-      }
-    }
+  // Evitar doble click/múltiples instancias
+  if (openingTickets.has(opener.id)) {
+    await interaction.reply({ content: '⏳ Ya estoy creando tu ticket...', ephemeral: true });
     return;
+  }
+  openingTickets.add(opener.id);
+
+  try {
+    // ¿Ya tiene uno abierto en esa categoría?
+    const yaExiste = guild.channels.cache.find(
+      c =>
+        c.type === ChannelType.GuildText &&
+        c.parentId === parentId &&
+        c.topic === opener.id
+    );
+
+    if (yaExiste) {
+      await interaction.reply({
+        content: `📌 Ya tienes un ticket abierto: <#${yaExiste.id}>`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Nombre seguro
+    const safeName = opener.username
+      .toLowerCase()
+      .replace(/ /g, '-')
+      .replace(/[^a-z0-9-_]/g, '');
+
+    // Crear canal BAJO la categoría de soporte
+    const channel = await guild.channels.create({
+      name: `👤│${safeName}`,
+      type: ChannelType.GuildText,
+      parent: parentId,              // ← importante
+      topic: opener.id,              // guardar quién abrió
+      permissionOverwrites: buildOverwrites(guild, opener.id),
+    });
+
+    // Mensaje inicial + botón Cerrar
+    const embed = new EmbedBuilder()
+      .setColor(0x2b2d31)
+      .setDescription([
+        `Gracias por abrir tu ticket, ${opener}.`,
+        'Cuéntanos tu caso con detalle y adjunta la info necesaria.',
+        'Para cerrar el ticket, usa el botón **Cerrar ticket**.',
+      ].join('\n'));
+
+    const closeBtn = new ButtonBuilder()
+      .setCustomId('ticket_close')
+      .setStyle(ButtonStyle.Danger)
+      .setEmoji('🧺')
+      .setLabel('Cerrar ticket');
+
+    await channel.send({
+      content: `${opener}`,
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(closeBtn)],
+    });
+
+    await interaction.reply({ content: `✅ Tu ticket fue creado: <#${channel.id}>`, ephemeral: true });
+  } catch (err) {
+    console.error('ticket_open error', err);
+    await interaction.reply({ content: '❌ No pude crear tu ticket.', ephemeral: true });
+  } finally {
+    openingTickets.delete(opener.id);
   }
 });
+
+/** Cerrar ticket y mandar transcript a logs */
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+  if (interaction.customId !== 'ticket_close') re
+::contentReference[oaicite:0]{index=0}
