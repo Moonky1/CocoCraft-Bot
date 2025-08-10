@@ -27,8 +27,7 @@ module.exports = {
       return interaction.reply({ content: '❌ No encuentro el canal de boosts.', ephemeral: true });
     }
 
-    const content = `🎉 **¡${user} acaba de impulsar el server!** Ya somos **${boosts} boosts**. `
-      + `Pasa por <#${TICKETS_CHANNEL_ID}> para reclamar tus recompensas.`;
+    const content = `**¡Gracias por el boost ${newMember}!** Con este ya sumamos **${totalBoosts}** boosts. Canjea tus premios en <#${TICKETS_CHANNEL_ID}>.`;
 
     await channel.send({ content });
     await interaction.reply({ content: '✅ Mensaje de prueba enviado a #boosts.', ephemeral: true });
