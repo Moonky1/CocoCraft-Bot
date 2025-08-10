@@ -379,7 +379,8 @@ client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login er
 //  SUPPORT_ROLE_IDS=ID1,ID2 (opcional, roles con acceso a los tickets)
 
 const {
-  ButtonStyle,         // <- asegúrate de tenerlo
+  ButtonStyle,
+  EmbedBuilder,         // <- asegúrate de tenerlo
   ChannelType,         // <- ESTE es el que falta
   PermissionFlagsBits  // <- si lo usas en permissionOverwrites
 } = require('discord.js');
