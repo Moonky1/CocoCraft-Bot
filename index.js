@@ -378,7 +378,6 @@ const {
   EmbedBuilder,
   ChannelType,
   PermissionFlagsBits,
-  AttachmentBuilder,
   Events,
 } = require('discord.js');
 
