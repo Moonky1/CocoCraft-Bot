@@ -378,8 +378,6 @@ client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login er
 //  LOGS_CHANNEL_ID=1404021560997707856
 //  SUPPORT_ROLE_IDS=ID1,ID2 (opcional, roles con acceso a los tickets)
 
-const path = require('path');
-
 // helpers de permisos
 function buildOverwrites(guild, openerId) {
   const overwrites = [
