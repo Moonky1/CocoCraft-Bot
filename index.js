@@ -247,8 +247,7 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
   );
 
   if (mine.length <= 1) return;
-  // Ordena por fecha DESC y elimina del índice 1 en adelante
-  mine.sort((a, b) => b.createdTimestamp - a.createdTimestamp);
+  mine.sort((a, b) => b.createdTimestamp - a.createdTimestamp); // nuevo → viejo
   for (let i = 1; i < mine.length; i++) {
     await mine[i].delete().catch(() => {});
   }
@@ -256,28 +255,32 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
 
 // Evita múltiples listeners si recargas
 client.removeAllListeners('guildMemberAdd');
-client.on('guildMemberAdd', async member => {
+client.on('guildMemberAdd', async (member) => {
   try {
     const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
     if (!canal) return console.error('❌ Welcome channel not found');
 
-    // si otra instancia lo acaba de saludar, no dupliques
+    // Si otra instancia lo acaba de saludar, no dupliques
     if (wasWelcomedRecently(member.id)) return;
     if (await alreadyInChannel(canal, member, 45)) { markWelcomed(member.id); return; }
+
+    // Limpia posibles restos ANTES de publicar
+    await cleanWelcomeDuplicates(canal, member, 600);
 
     // Construye la imagen
     const buffer = await drawWelcome(member);
     const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
-    await canal.send({ files: [file] });
-    // Publica **un solo** mensaje (texto + imagen)
+
+    // Publica UN SOLO mensaje (texto + imagen)
     const content =
-      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
+      `🍪 ¡Bienvenido ${member} a **${member.guild.name}**!\n` +
+      `Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
 
     await canal.send({ content, files: [file] });
 
-    // Marca en memoria y limpia posibles duplicados viejos
+    // Marca y limpia otra vez 2.5s después por si otra instancia alcanzó a publicar
     markWelcomed(member.id);
-    await cleanWelcomeDuplicates(canal, member, 600); // 10 min
+    setTimeout(() => cleanWelcomeDuplicates(canal, member, 600).catch(() => {}), 2500);
 
   } catch (e) {
     console.error('welcome error', e);
