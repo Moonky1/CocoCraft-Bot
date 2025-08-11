@@ -11,6 +11,8 @@ module.exports = {
   async execute(interaction) {
     // 👇 SIEMPRE AL INICIO
     await interaction.deferReply({ ephemeral: false });
+    await interaction.editReply('✅ ¡Sugerencia enviada!');
+setTimeout(() => interaction.deleteReply().catch(() => {}), 5000); // 5s
 
     try {
       const mensaje = interaction.options.getString('mensaje');
