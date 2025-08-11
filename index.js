@@ -364,6 +364,26 @@ client.once('ready', () => {
   // corre al iniciar y luego cada 60s
   tick();
   setInterval(tick, 60_000);
+  // ---- Auto-sync de slash commands ----
+try {
+  const cmds = [
+    require('./commands/suggest').data.toJSON()
+  ];
+
+  // Asegura que el bot vea el guild en cache
+  await client.guilds.fetch().catch(() => {});
+  const guild = client.guilds.cache.get(process.env.GUILD_ID);
+
+  if (guild) {
+    await guild.commands.set(cmds); // instantáneo en TU servidor
+    console.log('✅ /suggest sincronizado en el guild');
+  } else {
+    await client.application.commands.set(cmds); // global: puede tardar ~1h
+    console.log('🕒 /suggest sincronizado globalmente');
+  }
+} catch (e) {
+  console.error('slash sync error', e);
+}
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
