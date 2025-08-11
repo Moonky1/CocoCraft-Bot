@@ -7,6 +7,7 @@ module.exports = {
     .setName('user')
     .setDescription('Muestra tu propia información'),
   async execute(interaction) {
+    await interaction.deferReply({ ephemeral: true });
     const target = interaction.user;
     const member = interaction.guild.members.cache.get(target.id);
 

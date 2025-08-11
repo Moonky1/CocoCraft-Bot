@@ -344,46 +344,53 @@ client.on('guildMemberAdd', async (member) => {
 
 // ───────────────────────────────────────────────────────────────────────────────
 // READY
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
 
+  // Presencia
   client.user.setPresence({
     status: 'online',
     activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
   });
 
-  // Bucle robusto
-  const tick = async () => {
+  // ---- AUTO-SYNC de slash commands (guild) ----
+  const syncSlash = async () => {
     try {
-      await updateChannelNames();
+      // Asegúrate de tener la guild en caché
+      await client.guilds.fetch().catch(() => {});
+      const guild = client.guilds.cache.get(process.env.GUILD_ID);
+
+      // Lista de comandos (agrega aquí los que tengas)
+      const commands = [
+        require('./commands/suggest').data.toJSON(),
+        // require('./commands/otro').data.toJSON(),
+      ];
+
+      if (guild) {
+        // Registrar como GUILD commands (aparecen al instante y son más estables)
+        await guild.commands.set(commands);
+        console.log('✅ Slash sincronizado en la guild.');
+      } else {
+        // Fallback: global (tarda en propagarse, pero sirve si no hay GUILD_ID)
+        await client.application.commands.set(commands);
+        console.log('✅ Slash global actualizado.');
+      }
     } catch (e) {
-      console.error('❌ updateChannelNames failed:', e);
+      console.error('slash sync error', e);
     }
   };
 
-  // corre al iniciar y luego cada 60s
-  tick();
-  setInterval(tick, 60_000);
-  // ---- Auto-sync de slash commands ----
-try {
-  const cmds = [
-    require('./commands/suggest').data.toJSON()
-  ];
+  // sincroniza ya y luego cada 6 horas
+  await syncSlash();
+  setInterval(syncSlash, 6 * 60 * 60 * 1000);
 
-  // Asegura que el bot vea el guild en cache
-  await client.guilds.fetch().catch(() => {});
-  const guild = client.guilds.cache.get(process.env.GUILD_ID);
-
-  if (guild) {
-    await guild.commands.set(cmds); // instantáneo en TU servidor
-    console.log('✅ /suggest sincronizado en el guild');
-  } else {
-    await client.application.commands.set(cmds); // global: puede tardar ~1h
-    console.log('🕒 /suggest sincronizado globalmente');
-  }
-} catch (e) {
-  console.error('slash sync error', e);
-}
+  // ---- tus tareas recurrentes (ya las tenías) ----
+  try {
+    await updateChannelNames();
+  } catch (e) { console.error('updateChannelNames on boot', e); }
+  setInterval(async () => {
+    try { await updateChannelNames(); } catch (e) { console.error('update tick', e); }
+  }, 60_000);
 });
 
 // ───────────────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ module.exports = {
     .setDescription('Muestra la IP y el número de jugadores en tiempo real'),
 
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
 
     let online  = '❌';
     let max     = '❌';

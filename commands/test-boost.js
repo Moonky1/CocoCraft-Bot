@@ -19,6 +19,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    await interaction.deferReply({ ephemeral: true });
     const newMember = interaction.options.getUser('miembro') ?? interaction.user;
     const totalBoosts = interaction.options.getInteger('conteo') ?? 1;
 
