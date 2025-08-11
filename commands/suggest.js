@@ -26,7 +26,7 @@ module.exports = {
       const thumb = path.join(__dirname, '..', 'assets', 'images', 'thumb.png');
 
       const embed = {
-        color: 0xd18be3,
+        color: 0x4cadd0,
         author: {
           name: `${interaction.user.username}'s suggestion`,
           icon_url: interaction.user.displayAvatarURL({ size: 128 })
