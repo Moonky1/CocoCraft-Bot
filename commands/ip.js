@@ -17,7 +17,7 @@ const EMBED_COLOR = 0x4cadd0; // #4cadd0
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ip')
-    .setDescription('Muestra el estado del servidor con imagen'),
+    .setDescription('Muestra la ip de CocoCraft y su estado en tiempo real'),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: false });
@@ -183,7 +183,7 @@ module.exports = {
     // ===== Embed =====
     const embed = new EmbedBuilder()
       .setColor(EMBED_COLOR)
-      .setTitle(`${serverName} | Servidor`)
+      .setTitle(`${serverName} | Minecraft Server`)
       .addFields(
         { name: 'IP:', value: `\`${host}\``, inline: false },
         { name: 'Bedrock:', value: 'Puerto `25565`', inline: false }, // como pediste
