@@ -95,7 +95,7 @@ async function drawServerCard({ bgPath, host, port, online, max, ok }) {
 
   // título
   ctx.font = 'bold 36px DMSansBold, sans-serif';
-  ctx.fillText('CocoCraft Network', 32, 64);
+  ctx.fillText('CocoCraft', 32, 64);
 
   // ip
   ctx.font = 'bold 26px DMSansBold, sans-serif';
