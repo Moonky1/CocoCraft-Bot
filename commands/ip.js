@@ -1,4 +1,3 @@
-// commands/ip.js
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { status } = require('minecraft-server-util');
@@ -15,22 +14,36 @@ module.exports = {
 
     // ── Config ───────────────────────────────────────────────
     const HOST = process.env.MC_HOST || '172.240.1.180';
-    const PORT = parseInt(process.env.MC_PORT, 10) || 25565;     // Java
-    const BEDROCK_PORT = parseInt(process.env.BEDROCK_PORT, 10) || 19132;
+    const PORT = parseInt(process.env.MC_PORT, 10) || 25565;          // Java
+    const BEDROCK_PORT = parseInt(process.env.BEDROCK_PORT, 10) || 25565; // Texto
     const SERVER_NAME = process.env.SERVER_NAME || 'CocoCraft';
-    const BRAND_COLOR = 0x4cadd0;
+    const MAX_SLOTS = parseInt(process.env.MAX_SLOTS, 10) || 200;     // Cálculo %
     const MAINTENANCE = String(process.env.MAINTENANCE || '').trim() === '1';
+    const BRAND_COLOR = 0x4cadd0;
 
     // ── Ping Java server ─────────────────────────────────────
     let isOnline = false;
+    let online = 0;
+    let maxFromServer = MAX_SLOTS;
+
     try {
-      await status(HOST, { port: PORT, timeout: 2000 });
+      const res = await status(HOST, { port: PORT, timeout: 2000 });
       isOnline = true;
-    } catch (_) {
+      online = Math.max(0, res.players?.online ?? 0);
+      const rawMax = res.players?.max ?? 0;
+      if (rawMax && Number.isFinite(rawMax)) {
+        maxFromServer = rawMax;
+      }
+    } catch {
       isOnline = false;
+      online = 0;
     }
 
-    // Estado para la imagen
+    // tope para el % (si el server reporta 0, usamos MAX_SLOTS)
+    const cap = maxFromServer || MAX_SLOTS;
+    const percent = Math.max(0, Math.min(100, Math.round((online / cap) * 100)));
+
+    // Estado: respeta MAINTENANCE sólo si lo pones en .env
     let stateText = 'Offline';
     let stateColor = '#ff6b6b'; // rojo
     if (MAINTENANCE) {
@@ -41,7 +54,7 @@ module.exports = {
       stateColor = '#49d17a';  // verde
     }
 
-    // ── Canvas (solo nombre + estado) ────────────────────────
+    // ── Canvas con nombre + estado + 0/200 + barra ──────────
     const W = 1280, H = 360;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
@@ -52,7 +65,6 @@ module.exports = {
       const bg = await loadImage(bgPath);
       ctx.drawImage(bg, 0, 0, W, H);
     } catch {
-      // fondo liso si no existe
       ctx.fillStyle = '#1e1f26';
       ctx.fillRect(0, 0, W, H);
     }
@@ -64,24 +76,23 @@ module.exports = {
     ctx.fillStyle = grad;
     ctx.fillRect(0, H - 140, W, 140);
 
-    // nombre del server
+    // Nombre
     ctx.font = 'bold 64px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = 18;
     ctx.fillText(SERVER_NAME, 48, 120);
 
-    // chip de estado
+    // Chip de estado
     const chipX = 48, chipY = 160, chipH = 56;
     ctx.shadowBlur = 0;
-    ctx.fillStyle = stateColor;
-    const pad = 22;
-    // ancho dinámico segun texto
     ctx.font = 'bold 32px sans-serif';
+    const pad = 22;
     const textW = ctx.measureText(stateText).width;
     const chipW = textW + pad * 2;
-    // rect redondeado
     const r = chipH / 2;
+
+    ctx.fillStyle = stateColor;
     ctx.beginPath();
     ctx.moveTo(chipX + r, chipY);
     ctx.lineTo(chipX + chipW - r, chipY);
@@ -91,21 +102,61 @@ module.exports = {
     ctx.closePath();
     ctx.fill();
 
-    // texto del chip
     ctx.fillStyle = '#0e0f12';
     ctx.fillText(stateText, chipX + pad, chipY + 38);
+
+    // 0/200 grande
+    ctx.font = 'bold 92px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 14;
+    ctx.fillText(`${online}/${cap}`, 48, 300);
+
+    // Barra de porcentaje
+    ctx.shadowBlur = 0;
+    const barX = 620, barY = 270, barW = 560, barH = 28, barR = 14;
+
+    // fondo barra
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.beginPath();
+    ctx.moveTo(barX + barR, barY);
+    ctx.lineTo(barX + barW - barR, barY);
+    ctx.arc(barX + barW - barR, barY + barH / 2, barR, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(barX + barR, barY + barH);
+    ctx.arc(barX + barR, barY + barH / 2, barR, Math.PI / 2, -Math.PI / 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // progreso
+    const progW = Math.round((percent / 100) * barW);
+    if (progW > 0) {
+      ctx.fillStyle = '#4cadd0';
+      ctx.beginPath();
+      const w = Math.max(barH, progW); // mantener los bordes redondeados en valores bajos
+      ctx.moveTo(barX + barR, barY);
+      ctx.lineTo(barX + w - barR, barY);
+      ctx.arc(barX + w - barR, barY + barH / 2, barR, -Math.PI / 2, Math.PI / 2);
+      ctx.lineTo(barX + barR, barY + barH);
+      ctx.arc(barX + barR, barY + barH / 2, barR, Math.PI / 2, -Math.PI / 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // % texto
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`${percent}%`, barX + barW + 12, barY + barH - 6);
 
     const bannerBuffer = canvas.toBuffer('image/png');
     const bannerFile = new AttachmentBuilder(bannerBuffer, { name: 'server-status.png' });
 
-    // ── Thumbnail (logo) ─────────────────────────────────────
+    // Thumbnail (logo)
     const thumbPath = path.join(__dirname, '..', 'assets', 'images', 'thumb.png');
 
-    // ── Embed ────────────────────────────────────────────────
+    // Embed
     const embed = new EmbedBuilder()
       .setColor(BRAND_COLOR)
       .setTitle(`${SERVER_NAME} | Servidor`)
-      // Solo texto aquí: IP y Bedrock
       .setDescription([
         `**IP:** \`${HOST}\``,
         `**Bedrock:** puerto \`${BEDROCK_PORT}\``,
@@ -114,7 +165,6 @@ module.exports = {
       .setTimestamp();
 
     try {
-      // si hay logo, úsalo
       await loadImage(thumbPath);
       embed.setThumbnail('attachment://thumb.png');
       await interaction.editReply({
@@ -122,7 +172,6 @@ module.exports = {
         files: [bannerFile, { attachment: thumbPath, name: 'thumb.png' }],
       });
     } catch {
-      // sin logo
       await interaction.editReply({
         embeds: [embed],
         files: [bannerFile],
