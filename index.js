@@ -365,6 +365,17 @@ client.once('ready', async () => {
         require('./commands/suggest').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
+      const fs = require('fs');
+      const path = require('path');
+
+      const commandsPath = path.join(__dirname, 'commands');
+      const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
+
+      const commands = [];
+      for (const file of commandFiles) {
+      const mod = require(path.join(commandsPath, file));
+      if (mod?.data?.toJSON) commands.push(mod.data.toJSON());
+      }
 
       if (guild) {
         // Registrar como GUILD commands (aparecen al instante y son más estables)
