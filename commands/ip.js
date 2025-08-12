@@ -1,12 +1,9 @@
 // commands/ip.js
-const { SlashCommandBuilder, AttachmentBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder } = require('@discordjs/builders');
+const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { status } = require('minecraft-server-util');
-const { createCanvas, loadImage, registerFont } = require('canvas');
 const path = require('path');
-
-// registra fuente (una vez por proceso)
-const FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'DMSans-Bold.ttf');
-try { registerFont(FONT_PATH, { family: 'DMSansBold' }); } catch (e) {}
+const { createCanvas, loadImage } = require('canvas');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,118 +13,120 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: false });
 
-    const host = process.env.MC_HOST || 'tu.host.com';
-    const port = Number(process.env.MC_PORT) || 25565;
-    const serverName = process.env.SERVER_NAME || 'CocoCraft';
+    // ── Config ───────────────────────────────────────────────
+    const HOST = process.env.MC_HOST || '172.240.1.180';
+    const PORT = parseInt(process.env.MC_PORT, 10) || 25565;     // Java
+    const BEDROCK_PORT = parseInt(process.env.BEDROCK_PORT, 10) || 19132;
+    const SERVER_NAME = process.env.SERVER_NAME || 'CocoCraft';
+    const BRAND_COLOR = 0x4cadd0;
+    const MAINTENANCE = String(process.env.MAINTENANCE || '').trim() === '1';
 
-    let online = 0;
-    let max = 0;
-    let isUp = false;
-
+    // ── Ping Java server ─────────────────────────────────────
+    let isOnline = false;
     try {
-      const res = await status(host, { port, timeout: 2500 });
-      online = res?.players?.online ?? 0;
-      max    = res?.players?.max ?? 0;
-      isUp = true;
-    } catch (err) {
-      console.error('ip canvas ping error:', err);
-      isUp = false;
+      await status(HOST, { port: PORT, timeout: 2000 });
+      isOnline = true;
+    } catch (_) {
+      isOnline = false;
     }
 
-    // Canvas
-    const W = 1280, H = 640;
+    // Estado para la imagen
+    let stateText = 'Offline';
+    let stateColor = '#ff6b6b'; // rojo
+    if (MAINTENANCE) {
+      stateText = 'En mantenimiento';
+      stateColor = '#f7b500';  // ámbar
+    } else if (isOnline) {
+      stateText = 'Online';
+      stateColor = '#49d17a';  // verde
+    }
+
+    // ── Canvas (solo nombre + estado) ────────────────────────
+    const W = 1280, H = 360;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    // Fondo
+    // fondo
+    const bgPath = path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png');
     try {
-      const bg = await loadImage(path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png'));
+      const bg = await loadImage(bgPath);
       ctx.drawImage(bg, 0, 0, W, H);
     } catch {
-      // fallback si no encuentra el fondo
-      ctx.fillStyle = '#0e0f13';
+      // fondo liso si no existe
+      ctx.fillStyle = '#1e1f26';
       ctx.fillRect(0, 0, W, H);
     }
 
-    // Capa suavizada para texto
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(40, 40, W - 80, H - 80);
+    // banda inferior suave
+    const grad = ctx.createLinearGradient(0, H - 120, 0, H);
+    grad.addColorStop(0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, H - 140, W, 140);
 
-    // Logo arriba derecha
-    try {
-      const logo = await loadImage(path.join(__dirname, '..', 'assets', 'images', 'logo.png'));
-      const L = 220; // tamaño logo
-      ctx.drawImage(logo, W - L - 60, 60, L, L);
-    } catch {}
-
-    // Títulos
-    ctx.font = 'bold 64px DMSansBold, sans-serif';
+    // nombre del server
+    ctx.font = 'bold 64px sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
     ctx.shadowBlur = 18;
-    ctx.textAlign = 'left';
-    ctx.fillText(serverName, 70, 120);
+    ctx.fillText(SERVER_NAME, 48, 120);
 
-    ctx.font = 'bold 40px DMSansBold, sans-serif';
-    ctx.fillStyle = '#cfe9f6';
-    ctx.fillText(`${host}:${port}`, 70, 170);
-
-    // Estado
-    ctx.font = 'bold 36px DMSansBold, sans-serif';
-    ctx.fillStyle = isUp ? '#4cadd0' : '#ff6b6b';
-    ctx.fillText(isUp ? 'Online' : 'Offline', 70, 220);
-
-    // Jugadores + barra
-    const barX = 70, barY = 300, barW = W - 140, barH = 30;
+    // chip de estado
+    const chipX = 48, chipY = 160, chipH = 56;
     ctx.shadowBlur = 0;
-
-    // pista
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillRect(barX, barY, barW, barH);
-
-    // progreso
-    const pct = (max > 0 && isUp) ? Math.min(online / max, 1) : 0;
-    ctx.fillStyle = '#4cadd0';
-    ctx.fillRect(barX, barY, Math.max(4, Math.floor(barW * pct)), barH);
-
-    // números
-    ctx.font = 'bold 44px DMSansBold, sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign = 'center';
-    const playersText = isUp ? `${online} / ${max}` : '— / —';
-    ctx.fillText(playersText, W / 2, barY + barH + 60);
-
-    // “gráfico” simple de líneas (opcional)
-    ctx.strokeStyle = 'rgba(76,173,208,0.4)';
-    ctx.lineWidth = 2;
-    const baseY = barY + 160;
+    ctx.fillStyle = stateColor;
+    const pad = 22;
+    // ancho dinámico segun texto
+    ctx.font = 'bold 32px sans-serif';
+    const textW = ctx.measureText(stateText).width;
+    const chipW = textW + pad * 2;
+    // rect redondeado
+    const r = chipH / 2;
     ctx.beginPath();
-    for (let i = 0; i <= 48; i++) {
-      const x = 70 + (i * ((W - 140) / 48));
-      const y = baseY + Math.sin(i / 2) * 8;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-    }
-    ctx.stroke();
+    ctx.moveTo(chipX + r, chipY);
+    ctx.lineTo(chipX + chipW - r, chipY);
+    ctx.arc(chipX + chipW - r, chipY + r, r, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(chipX + r, chipY + chipH);
+    ctx.arc(chipX + r, chipY + r, r, Math.PI / 2, -Math.PI / 2);
+    ctx.closePath();
+    ctx.fill();
 
-    // Sello “actualizado”
-    ctx.textAlign = 'right';
-    ctx.font = 'bold 26px DMSansBold, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    const ts = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-    ctx.fillText(`Actualizado ${ts}`, W - 60, H - 54);
+    // texto del chip
+    ctx.fillStyle = '#0e0f12';
+    ctx.fillText(stateText, chipX + pad, chipY + 38);
 
-    const buffer = canvas.toBuffer('image/png');
-    const file = new AttachmentBuilder(buffer, { name: 'server-status.png' });
+    const bannerBuffer = canvas.toBuffer('image/png');
+    const bannerFile = new AttachmentBuilder(bannerBuffer, { name: 'server-status.png' });
 
-    // Embed con la imagen
+    // ── Thumbnail (logo) ─────────────────────────────────────
+    const thumbPath = path.join(__dirname, '..', 'assets', 'images', 'thumb.png');
+
+    // ── Embed ────────────────────────────────────────────────
     const embed = new EmbedBuilder()
-      .setColor(0x4cadd0) // #4cadd0
-      .setTitle('Estado del servidor')
-      .setDescription(`\`${host}:${port}\``)
+      .setColor(BRAND_COLOR)
+      .setTitle(`${SERVER_NAME} | Servidor`)
+      // Solo texto aquí: IP y Bedrock
+      .setDescription([
+        `**IP:** \`${HOST}\``,
+        `**Bedrock:** puerto \`${BEDROCK_PORT}\``,
+      ].join('\n'))
       .setImage('attachment://server-status.png')
-      .setFooter({ text: `Solicitado por ${interaction.user.username}` })
       .setTimestamp();
 
-    await interaction.editReply({ embeds: [embed], files: [file] });
+    try {
+      // si hay logo, úsalo
+      await loadImage(thumbPath);
+      embed.setThumbnail('attachment://thumb.png');
+      await interaction.editReply({
+        embeds: [embed],
+        files: [bannerFile, { attachment: thumbPath, name: 'thumb.png' }],
+      });
+    } catch {
+      // sin logo
+      await interaction.editReply({
+        embeds: [embed],
+        files: [bannerFile],
+      });
+    }
   }
 };
