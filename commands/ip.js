@@ -1,153 +1,133 @@
 // commands/ip.js
-const { SlashCommandBuilder } = require('@discordjs/builders');
-const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
-const { status } = require('minecraft-server-util'); // Java Edition
-const path = require('path');
+const { SlashCommandBuilder, AttachmentBuilder, EmbedBuilder } = require('discord.js');
+const { status } = require('minecraft-server-util');
 const { createCanvas, loadImage, registerFont } = require('canvas');
+const path = require('path');
 
-// intenta registrar tu fuente (opcional)
-try {
-  registerFont(path.join(__dirname, '..', 'assets', 'fonts', 'DMSans-Bold.ttf'), {
-    family: 'DMSansBold'
-  });
-} catch (_) {}
+// registra fuente (una vez por proceso)
+const FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'DMSans-Bold.ttf');
+try { registerFont(FONT_PATH, { family: 'DMSansBold' }); } catch (e) {}
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ip')
-    .setDescription('Muestra la IP y un banner con el número de jugadores en tiempo real'),
+    .setDescription('Muestra el estado del servidor con imagen'),
 
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: false });
 
-    const host = process.env.MC_HOST || '127.0.0.1';
-    const port = parseInt(process.env.MC_PORT || '25565', 10);
+    const host = process.env.MC_HOST || 'tu.host.com';
+    const port = Number(process.env.MC_PORT) || 25565;
+    const serverName = process.env.SERVER_NAME || 'CocoCraft';
 
     let online = 0;
     let max = 0;
-    let ok = true;
+    let isUp = false;
 
     try {
-      const res = await status(host, { port, timeout: 2000 });
-      online = res.players?.online ?? 0;
-      max    = res.players?.max ?? Math.max(online, 1);
+      const res = await status(host, { port, timeout: 2500 });
+      online = res?.players?.online ?? 0;
+      max    = res?.players?.max ?? 0;
+      isUp = true;
     } catch (err) {
-      ok = false;
-      // si no responde, deja online=0 y max=1 para la barra
+      console.error('ip canvas ping error:', err);
+      isUp = false;
     }
 
-    // --- generar imagen dinámica ---
-    const bgPath = path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png'); // <-- tu imagen
-    const buffer = await drawServerCard({
-      bgPath,
-      host,
-      port,
-      online,
-      max,
-      ok
-    });
+    // Canvas
+    const W = 1280, H = 640;
+    const canvas = createCanvas(W, H);
+    const ctx = canvas.getContext('2d');
 
-    const file = new AttachmentBuilder(buffer, { name: `server-status-${Date.now()}.png` });
+    // Fondo
+    try {
+      const bg = await loadImage(path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png'));
+      ctx.drawImage(bg, 0, 0, W, H);
+    } catch {
+      // fallback si no encuentra el fondo
+      ctx.fillStyle = '#0e0f13';
+      ctx.fillRect(0, 0, W, H);
+    }
 
-    // --- embed ---
+    // Capa suavizada para texto
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(40, 40, W - 80, H - 80);
+
+    // Logo arriba derecha
+    try {
+      const logo = await loadImage(path.join(__dirname, '..', 'assets', 'images', 'logo.png'));
+      const L = 220; // tamaño logo
+      ctx.drawImage(logo, W - L - 60, 60, L, L);
+    } catch {}
+
+    // Títulos
+    ctx.font = 'bold 64px DMSansBold, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur = 18;
+    ctx.textAlign = 'left';
+    ctx.fillText(serverName, 70, 120);
+
+    ctx.font = 'bold 40px DMSansBold, sans-serif';
+    ctx.fillStyle = '#cfe9f6';
+    ctx.fillText(`${host}:${port}`, 70, 170);
+
+    // Estado
+    ctx.font = 'bold 36px DMSansBold, sans-serif';
+    ctx.fillStyle = isUp ? '#4cadd0' : '#ff6b6b';
+    ctx.fillText(isUp ? 'Online' : 'Offline', 70, 220);
+
+    // Jugadores + barra
+    const barX = 70, barY = 300, barW = W - 140, barH = 30;
+    ctx.shadowBlur = 0;
+
+    // pista
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(barX, barY, barW, barH);
+
+    // progreso
+    const pct = (max > 0 && isUp) ? Math.min(online / max, 1) : 0;
+    ctx.fillStyle = '#4cadd0';
+    ctx.fillRect(barX, barY, Math.max(4, Math.floor(barW * pct)), barH);
+
+    // números
+    ctx.font = 'bold 44px DMSansBold, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    const playersText = isUp ? `${online} / ${max}` : '— / —';
+    ctx.fillText(playersText, W / 2, barY + barH + 60);
+
+    // “gráfico” simple de líneas (opcional)
+    ctx.strokeStyle = 'rgba(76,173,208,0.4)';
+    ctx.lineWidth = 2;
+    const baseY = barY + 160;
+    ctx.beginPath();
+    for (let i = 0; i <= 48; i++) {
+      const x = 70 + (i * ((W - 140) / 48));
+      const y = baseY + Math.sin(i / 2) * 8;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Sello “actualizado”
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 26px DMSansBold, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    const ts = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    ctx.fillText(`Actualizado ${ts}`, W - 60, H - 54);
+
+    const buffer = canvas.toBuffer('image/png');
+    const file = new AttachmentBuilder(buffer, { name: 'server-status.png' });
+
+    // Embed con la imagen
     const embed = new EmbedBuilder()
       .setColor(0x4cadd0) // #4cadd0
-      .setTitle('CocoCraft | Servidor')
+      .setTitle('Estado del servidor')
       .setDescription(`\`${host}:${port}\``)
-      .setImage('attachment://' + file.name)
-      .setFooter({ text: ok ? 'Estado en vivo' : 'No se pudo contactar al servidor' })
+      .setImage('attachment://server-status.png')
+      .setFooter({ text: `Solicitado por ${interaction.user.username}` })
       .setTimestamp();
 
     await interaction.editReply({ embeds: [embed], files: [file] });
   }
 };
-
-/**
- * Dibuja una tarjeta con fondo + online/max + barra de progreso
- */
-async function drawServerCard({ bgPath, host, port, online, max, ok }) {
-  // tamaño recomendado para banners: 1024x300 (puedes cambiarlo)
-  const W = 1024;
-  const H = 300;
-
-  const canvas = createCanvas(W, H);
-  const ctx = canvas.getContext('2d');
-
-  // fondo
-  try {
-    const bg = await loadImage(bgPath);
-    ctx.drawImage(bg, 0, 0, W, H);
-  } catch {
-    // fondo liso si falla la imagen
-    ctx.fillStyle = '#1f2428';
-    ctx.fillRect(0, 0, W, H);
-  }
-
-  // capa oscura suave para legibilidad
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(0, 0, W, H);
-
-  // textos
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.shadowColor = 'rgba(0,0,0,0.45)';
-  ctx.shadowBlur = 10;
-
-  // título
-  ctx.font = 'bold 36px DMSansBold, sans-serif';
-  ctx.fillText('CocoCraft', 32, 64);
-
-  // ip
-  ctx.font = 'bold 26px DMSansBold, sans-serif';
-  ctx.fillStyle = '#cfe9f6';
-  ctx.fillText(`${host}:${port}`, 32, 100);
-
-  // estado y contador
-  ctx.fillStyle = ok ? '#a7f3d0' : '#fca5a5';
-  ctx.font = 'bold 24px DMSansBold, sans-serif';
-  ctx.fillText(ok ? 'Online' : 'Offline', 32, 138);
-
-  // contador grande
-  const pct = Math.max(0, Math.min(1, max ? online / max : 0));
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 64px DMSansBold, sans-serif';
-  const countText = `${online}/${max}`;
-  ctx.fillText(countText, 32, 220);
-
-  // barra de progreso
-  const barX = 32;
-  const barY = 238;
-  const barW = W - 64;
-  const barH = 24;
-
-  // fondo de barra
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
-  roundRect(ctx, barX, barY, barW, barH, 12);
-  ctx.fill();
-
-  // barra llena
-  ctx.fillStyle = ok ? '#22c55e' : '#ef4444';
-  roundRect(ctx, barX, barY, Math.max(10, Math.floor(barW * pct)), barH, 12);
-  ctx.fill();
-
-  // numerito a la derecha
-  ctx.textAlign = 'right';
-  ctx.font = 'bold 20px DMSansBold, sans-serif';
-  ctx.fillStyle = '#ffffff';
-  ctx.fillText(`${Math.round(pct * 100)}%`, barX + barW - 8, barY + barH - 6);
-
-  return canvas.toBuffer('image/png');
-}
-
-// utilidad para esquinas redondeadas
-function roundRect(ctx, x, y, w, h, r) {
-  const radius = Math.min(r, h / 2, w / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + radius, y);
-  ctx.arcTo(x + w, y, x + w, y + h, radius);
-  ctx.arcTo(x + w, y + h, x, y + h, radius);
-  ctx.arcTo(x, y + h, x, y, radius);
-  ctx.arcTo(x, y, x + w, y, radius);
-  ctx.closePath();
-}
