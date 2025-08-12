@@ -1,9 +1,18 @@
+// commands/ip.js
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { status, statusBedrock } = require('minecraft-server-util');
-const { status } = require('minecraft-server-util');
+const { createCanvas, loadImage, registerFont } = require('canvas');
 const path = require('path');
-const { createCanvas, loadImage } = require('canvas');
+
+// Fuente opcional (si la tienes)
+try {
+  registerFont(path.join(__dirname, '..', 'assets', 'fonts', 'DMSans-Bold.ttf'), {
+    family: 'DMSansBold',
+  });
+} catch (_) { /* no pasa nada si no está */ }
+
+const EMBED_COLOR = 0x4cadd0; // #4cadd0
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,204 +22,179 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: false });
 
-    // ── Config ───────────────────────────────────────────────
-    const HOST = process.env.MC_HOST || '172.240.1.180';
-    const PORT = parseInt(process.env.MC_PORT, 10) || 25565;          // Java
-    const TIMEOUT_MS   = Number(process.env.MC_TIMEOUT) || 7000;  // espera hasta 7s antes de dar “Offline”
-    const BEDROCK_PORT = Number(process.env.BE_PORT)    || 19132; // por si usas Bedrock/Geyser
-    const BEDROCK_PORT = parseInt(process.env.BEDROCK_PORT, 10) || 25565; // Texto
-    const SERVER_NAME = process.env.SERVER_NAME || 'CocoCraft';
-    const MAX_SLOTS = parseInt(process.env.MAX_SLOTS, 10) || 200;     // Cálculo %
-    const MAINTENANCE = String(process.env.MAINTENANCE || '').trim() === '1';
-    const BRAND_COLOR = 0x4cadd0;
+    // Config
+    const host        = process.env.MC_HOST || '172.240.1.180';
+    const port        = parseInt(process.env.MC_PORT || '25565', 10);
+    const maxSlotsEnv = parseInt(process.env.MC_MAX  || '200',   10);
+    const timeoutMs   = parseInt(process.env.MC_TIMEOUT || '7000', 10);
+    const bePort      = parseInt(process.env.BE_PORT || '19132', 10);
+    const maintenance =
+      String(process.env.MAINTENANCE || '').toLowerCase() === '1' ||
+      String(process.env.MAINTENANCE || '').toLowerCase() === 'true';
 
-    // ── Ping Java server ─────────────────────────────────────
+    const serverName = process.env.SERVER_NAME || 'CocoCraft';
+
+    // ===== PING =====
     let isOnline = false;
     let online = 0;
-    let maxFromServer = MAX_SLOTS;
+    let maxFromServer = maxSlotsEnv;
 
     try {
-      let isOnline = false;
-let online   = 0;
-let maxFromServer = MAX_SLOTS; // o como llames a tu tope (200)
-
-try {
-  // 1) PING JAVA (con SRV y timeout más alto)
-  const res = await status(host, {
-    port: port,
-    timeout: TIMEOUT_MS,
-    enableSRV: true
-  });
-  isOnline = true;
-  online   = Math.max(0, res.players?.online ?? 0);
-  const rawMax = res.players?.max ?? 0;
-  if (rawMax && Number.isFinite(rawMax)) maxFromServer = rawMax;
-
-} catch (e1) {
-  // 2) FALLBACK: PING BEDROCK (solo si usas Bedrock/Geyser)
-  try {
-    const resB = await statusBedrock(host, {
-      port: BEDROCK_PORT,
-      timeout: TIMEOUT_MS
-    });
-    isOnline = true;
-    online   = Math.max(0, resB.players?.online ?? 0);
-    const rawMaxB = resB.players?.max ?? 0;
-    if (rawMaxB && Number.isFinite(rawMaxB)) maxFromServer = rawMaxB;
-
-  } catch (e2) {
-    console.error('Ping falló (java, bedrock):', e1?.code || e1?.message, '|', e2?.code || e2?.message);
-  }
-}
-
+      const res = await status(host, {
+        port,
+        timeout: timeoutMs,
+        enableSRV: true,
+      });
       isOnline = true;
       online = Math.max(0, res.players?.online ?? 0);
       const rawMax = res.players?.max ?? 0;
-      if (rawMax && Number.isFinite(rawMax)) {
-        maxFromServer = rawMax;
+      if (rawMax && Number.isFinite(rawMax)) maxFromServer = rawMax;
+    } catch (e1) {
+      // fallback a Bedrock si aplica
+      try {
+        const resB = await statusBedrock(host, {
+          port: bePort,
+          timeout: timeoutMs,
+        });
+        isOnline = true;
+        online = Math.max(0, resB.players?.online ?? 0);
+        const rawMaxB = resB.players?.max ?? 0;
+        if (rawMaxB && Number.isFinite(rawMaxB)) maxFromServer = rawMaxB;
+      } catch (e2) {
+        // sigue offline si ambos fallan
+        console.error('Ping falló (java/bedrock):', e1?.code || e1?.message, '|', e2?.code || e2?.message);
       }
-    } catch {
-      isOnline = false;
-      online = 0;
     }
 
-    // tope para el % (si el server reporta 0, usamos MAX_SLOTS)
-    const cap = maxFromServer || MAX_SLOTS;
-    const percent = Math.max(0, Math.min(100, Math.round((online / cap) * 100)));
+    // Forzar mantenimiento si está activo
+    const showMaintenance = maintenance;
+    const showOnline = !showMaintenance && isOnline;
 
-    // Estado: respeta MAINTENANCE sólo si lo pones en .env
-    let stateText = 'Offline';
-    let stateColor = '#ff6b6b'; // rojo
-    if (MAINTENANCE) {
-      stateText = 'En mantenimiento';
-      stateColor = '#f7b500';  // ámbar
-    } else if (isOnline) {
-      stateText = 'Online';
-      stateColor = '#49d17a';  // verde
-    }
-
-    // ── Canvas con nombre + estado + 0/200 + barra ──────────
-    const W = 1280, H = 360;
+    // ===== Dibujo de la tarjeta =====
+    const W = 1000;
+    const H = 240;
     const canvas = createCanvas(W, H);
     const ctx = canvas.getContext('2d');
 
-    // fondo
-    const bgPath = path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png');
+    // Fondo
+    let bg;
     try {
-      const bg = await loadImage(bgPath);
-      ctx.drawImage(bg, 0, 0, W, H);
+      const bgPath = path.join(__dirname, '..', 'assets', 'images', 'server-status-bg.png');
+      bg = await loadImage(bgPath);
     } catch {
-      ctx.fillStyle = '#1e1f26';
-      ctx.fillRect(0, 0, W, H);
+      const fallback = path.join(__dirname, '..', 'assets', 'images', 'welcome-bg.png');
+      bg = await loadImage(fallback);
+    }
+    ctx.drawImage(bg, 0, 0, W, H);
+
+    // Nombre del server
+    ctx.font = 'bold 38px DMSansBold, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 10;
+    ctx.fillText(serverName, 24, 70);
+    ctx.shadowBlur = 0;
+
+    // Etiqueta de estado
+    const drawBadge = (text, color) => {
+      ctx.font = 'bold 16px DMSansBold, sans-serif';
+      const padX = 10, padY = 6;
+      const textW = ctx.measureText(text).width;
+      const x = 24, y = 86;
+      const w = textW + padX * 2, h = 28;
+
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 8);
+      ctx.fill();
+
+      ctx.fillStyle = '#000000';
+      ctx.globalAlpha = 0.15;
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, 8);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(text, x + padX, y + 19);
+    };
+
+    if (showMaintenance) {
+      drawBadge('En mantenimiento', '#f1c40f');
+    } else if (showOnline) {
+      drawBadge('Online', '#2ecc71');
+    } else {
+      drawBadge('Offline', '#e74c3c');
     }
 
-    // banda inferior suave
-    const grad = ctx.createLinearGradient(0, H - 120, 0, H);
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.55)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, H - 140, W, 140);
+    // Conteo y barra
+    const cap = Math.max(maxFromServer || maxSlotsEnv, 1);
+    const pct = Math.min(online / cap, 1);
 
-    // Nombre
-    ctx.font = 'bold 64px sans-serif';
+    // Texto 0/200 grande
+    ctx.font = 'bold 54px DMSansBold, sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = 18;
-    ctx.fillText(SERVER_NAME, 48, 120);
-
-    // Chip de estado
-    const chipX = 48, chipY = 160, chipH = 56;
+    ctx.shadowBlur = 16;
+    const label = `${online}/${cap}`;
+    ctx.fillText(label, 24, 150);
     ctx.shadowBlur = 0;
-    ctx.font = 'bold 32px sans-serif';
-    const pad = 22;
-    const textW = ctx.measureText(stateText).width;
-    const chipW = textW + pad * 2;
-    const r = chipH / 2;
 
-    ctx.fillStyle = stateColor;
-    ctx.beginPath();
-    ctx.moveTo(chipX + r, chipY);
-    ctx.lineTo(chipX + chipW - r, chipY);
-    ctx.arc(chipX + chipW - r, chipY + r, r, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(chipX + r, chipY + chipH);
-    ctx.arc(chipX + r, chipY + r, r, Math.PI / 2, -Math.PI / 2);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#0e0f12';
-    ctx.fillText(stateText, chipX + pad, chipY + 38);
-
-    // 0/200 grande
-    ctx.font = 'bold 92px sans-serif';
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = 'rgba(0,0,0,0.45)';
-    ctx.shadowBlur = 14;
-    ctx.fillText(`${online}/${cap}`, 48, 300);
-
-    // Barra de porcentaje
-    ctx.shadowBlur = 0;
-    const barX = 620, barY = 270, barW = 560, barH = 28, barR = 14;
+    // Barra de progreso
+    const barX = 24;
+    const barY = 170;
+    const barW = W - 48;
+    const barH = 18;
 
     // fondo barra
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
     ctx.beginPath();
-    ctx.moveTo(barX + barR, barY);
-    ctx.lineTo(barX + barW - barR, barY);
-    ctx.arc(barX + barW - barR, barY + barH / 2, barR, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(barX + barR, barY + barH);
-    ctx.arc(barX + barR, barY + barH / 2, barR, Math.PI / 2, -Math.PI / 2);
-    ctx.closePath();
+    ctx.roundRect(barX, barY, barW, barH, 9);
     ctx.fill();
 
-    // progreso
-    const progW = Math.round((percent / 100) * barW);
-    if (progW > 0) {
-      ctx.fillStyle = '#4cadd0';
-      ctx.beginPath();
-      const w = Math.max(barH, progW); // mantener los bordes redondeados en valores bajos
-      ctx.moveTo(barX + barR, barY);
-      ctx.lineTo(barX + w - barR, barY);
-      ctx.arc(barX + w - barR, barY + barH / 2, barR, -Math.PI / 2, Math.PI / 2);
-      ctx.lineTo(barX + barR, barY + barH);
-      ctx.arc(barX + barR, barY + barH / 2, barR, Math.PI / 2, -Math.PI / 2);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    // % texto
-    ctx.font = 'bold 20px sans-serif';
+    // fill
     ctx.fillStyle = '#ffffff';
-    ctx.fillText(`${percent}%`, barX + barW + 12, barY + barH - 6);
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.roundRect(barX, barY, Math.max(12, barW * pct), barH, 9);
+    ctx.fill();
+    ctx.globalAlpha = 1;
 
-    const bannerBuffer = canvas.toBuffer('image/png');
-    const bannerFile = new AttachmentBuilder(bannerBuffer, { name: 'server-status.png' });
+    // Porcentaje al extremo
+    ctx.font = 'bold 14px DMSansBold, sans-serif';
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const pctStr = `${Math.round(pct * 100)}%`;
+    const pW = ctx.measureText(pctStr).width;
+    ctx.fillText(pctStr, barX + barW - pW, barY + barH - 4);
 
-    // Thumbnail (logo)
+    const cardBuffer = canvas.toBuffer('image/png');
+    const cardFile = new AttachmentBuilder(cardBuffer, { name: 'server-status.png' });
+
+    // Thumbnail (opcional)
+    const files = [cardFile];
     const thumbPath = path.join(__dirname, '..', 'assets', 'images', 'thumb.png');
+    let thumbOk = false;
+    try {
+      await loadImage(thumbPath);
+      thumbOk = true;
+      files.push({ attachment: thumbPath, name: 'thumb.png' });
+    } catch (_) { /* sin thumb */ }
 
-    // Embed
+    // ===== Embed =====
     const embed = new EmbedBuilder()
-      .setColor(BRAND_COLOR)
-      .setTitle(`${SERVER_NAME} | Servidor`)
-      .setDescription([
-        `**IP:** \`${HOST}\``,
-        `**Bedrock:** puerto \`${BEDROCK_PORT}\``,
-      ].join('\n'))
+      .setColor(EMBED_COLOR)
+      .setTitle(`${serverName} | Servidor`)
+      .addFields(
+        { name: 'IP:', value: `\`${host}\``, inline: false },
+        { name: 'Bedrock:', value: 'Puerto `25565`', inline: false }, // como pediste
+      )
       .setImage('attachment://server-status.png')
       .setTimestamp();
 
-    try {
-      await loadImage(thumbPath);
+    if (thumbOk) {
       embed.setThumbnail('attachment://thumb.png');
-      await interaction.editReply({
-        embeds: [embed],
-        files: [bannerFile, { attachment: thumbPath, name: 'thumb.png' }],
-      });
-    } catch {
-      await interaction.editReply({
-        embeds: [embed],
-        files: [bannerFile],
-      });
     }
-  }
+
+    await interaction.editReply({ embeds: [embed], files });
+  },
 };
