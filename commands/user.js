@@ -38,7 +38,7 @@ module.exports = {
           inline: false
         }
       )
-      .setFooter({ text: 'ExoTown Network' })
+      .setFooter({ text: 'CocoCraft | Minecraft Server' })
       .setTimestamp();
 
     await interaction.reply({ embeds: [embed], ephemeral: true });

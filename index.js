@@ -363,6 +363,10 @@ client.once('ready', async () => {
       // Lista de comandos (agrega aquí los que tengas)
       const commands = [
         require('./commands/suggest').data.toJSON(),
+        require('./commands/reglas').data.toJSON(),
+        require('./commands/ip').data.toJSON(),
+        require('./commands/test-boost').data.toJSON(),
+        require('./commands/user').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
       const fs = require('fs');
