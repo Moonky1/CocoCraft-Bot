@@ -1,5 +1,6 @@
 const { SlashCommandBuilder } = require('@discordjs/builders');
 const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
+const { status, statusBedrock } = require('minecraft-server-util');
 const { status } = require('minecraft-server-util');
 const path = require('path');
 const { createCanvas, loadImage } = require('canvas');
@@ -15,6 +16,8 @@ module.exports = {
     // ── Config ───────────────────────────────────────────────
     const HOST = process.env.MC_HOST || '172.240.1.180';
     const PORT = parseInt(process.env.MC_PORT, 10) || 25565;          // Java
+    const TIMEOUT_MS   = Number(process.env.MC_TIMEOUT) || 7000;  // espera hasta 7s antes de dar “Offline”
+    const BEDROCK_PORT = Number(process.env.BE_PORT)    || 19132; // por si usas Bedrock/Geyser
     const BEDROCK_PORT = parseInt(process.env.BEDROCK_PORT, 10) || 25565; // Texto
     const SERVER_NAME = process.env.SERVER_NAME || 'CocoCraft';
     const MAX_SLOTS = parseInt(process.env.MAX_SLOTS, 10) || 200;     // Cálculo %
@@ -27,7 +30,39 @@ module.exports = {
     let maxFromServer = MAX_SLOTS;
 
     try {
-      const res = await status(HOST, { port: PORT, timeout: 2000 });
+      let isOnline = false;
+let online   = 0;
+let maxFromServer = MAX_SLOTS; // o como llames a tu tope (200)
+
+try {
+  // 1) PING JAVA (con SRV y timeout más alto)
+  const res = await status(host, {
+    port: port,
+    timeout: TIMEOUT_MS,
+    enableSRV: true
+  });
+  isOnline = true;
+  online   = Math.max(0, res.players?.online ?? 0);
+  const rawMax = res.players?.max ?? 0;
+  if (rawMax && Number.isFinite(rawMax)) maxFromServer = rawMax;
+
+} catch (e1) {
+  // 2) FALLBACK: PING BEDROCK (solo si usas Bedrock/Geyser)
+  try {
+    const resB = await statusBedrock(host, {
+      port: BEDROCK_PORT,
+      timeout: TIMEOUT_MS
+    });
+    isOnline = true;
+    online   = Math.max(0, resB.players?.online ?? 0);
+    const rawMaxB = resB.players?.max ?? 0;
+    if (rawMaxB && Number.isFinite(rawMaxB)) maxFromServer = rawMaxB;
+
+  } catch (e2) {
+    console.error('Ping falló (java, bedrock):', e1?.code || e1?.message, '|', e2?.code || e2?.message);
+  }
+}
+
       isOnline = true;
       online = Math.max(0, res.players?.online ?? 0);
       const rawMax = res.players?.max ?? 0;
