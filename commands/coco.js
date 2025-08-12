@@ -1,97 +1,67 @@
-const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder, ChannelType } = require('discord.js');
+// commands/coco.js
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+} = require('discord.js');
 
-const EMBED_COLOR = 0x4cadd0; // tu color guardado
+const PREFER_WEBHOOK = (process.env.COCO_USE_WEBHOOK || '0') === '1';
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('coco')
-    .setDescription('Haz que el bot envíe un mensaje.')
+    .setDescription('Habla como el bot.')
     .addStringOption(o =>
       o.setName('mensaje')
-       .setDescription('Texto que dirá el bot')
-       .setRequired(true))
+        .setDescription('Lo que dirá el bot')
+        .setRequired(true))
     .addChannelOption(o =>
       o.setName('canal')
-       .setDescription('Canal donde hablará el bot (por defecto, este mismo)')
-       .addChannelTypes(
-         ChannelType.GuildText,
-         ChannelType.GuildAnnouncement,
-         ChannelType.PublicThread,
-         ChannelType.PrivateThread
-       ))
-    .addBooleanOption(o =>
-      o.setName('embed')
-       .setDescription('Si quieres que lo envíe como embed bonito'))
-    // si quieres que solo admins usen esto, descomenta la línea de abajo:
-    // .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    ,
-
+        .setDescription('Canal donde hablar (opcional)')),
+  
   async execute(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
-    // (opcional) restringir por roles desde .env
-    const allowRoles = (process.env.SPEAK_ROLE_IDS || '')
-      .split(',').map(s => s.trim()).filter(Boolean);
-    if (allowRoles.length) {
-      const has = interaction.member.roles.cache.some(r => allowRoles.includes(r.id));
-      if (!has) {
-        return interaction.editReply('❌ No tienes permiso para usar este comando.');
-      }
+    const client = interaction.client;
+    const text = interaction.options.getString('mensaje', true);
+    const target = interaction.options.getChannel('canal') || interaction.channel;
+
+    // Permisos básicos
+    const perms = target.permissionsFor(client.user);
+    if (!perms?.has(PermissionFlagsBits.SendMessages)) {
+      return interaction.editReply('❌ No tengo permiso para enviar mensajes en ese canal.');
     }
 
-    const text   = interaction.options.getString('mensaje', true).slice(0, 2000);
-    const target = interaction.options.getChannel('canal') ?? interaction.channel;
-    const asEmbed = interaction.options.getBoolean('embed') ?? false;
+    const payload = {
+      content: text,
+      allowedMentions: { parse: [] }, // evita @everyone/@here por defecto
+    };
 
-    // seguridad: evitar que el bot @everyone/@here/roles
-    const allowedMentions = { parse: [], users: [], roles: [], repliedUser: false };
-
-    // construir payload
-    const payload = asEmbed
-      ? {
-          embeds: [
-            new EmbedBuilder()
-              .setColor(EMBED_COLOR)
-              .setDescription(text)
-          ],
-          allowedMentions
-        }
-      : { content: text, allowedMentions };
-
-    // Intento 1: usar webhook (si hay permisos) para que se vea nombre/avatar del bot
-    const client = interaction.client;
+    // 1) Webhook si está habilitado en .env y hay permiso
     let sent = null;
-
-    const canManageWebhooks = target
-      && target.permissionsFor(client.user)?.has(PermissionFlagsBits.ManageWebhooks);
-
-    if (canManageWebhooks && typeof target.fetchWebhooks === 'function') {
+    if (PREFER_WEBHOOK && perms.has(PermissionFlagsBits.ManageWebhooks) && typeof target.fetchWebhooks === 'function') {
       try {
-        const existing = await target.fetchWebhooks();
-        let hook = existing.find(h => h.owner?.id === client.user.id) // un hook del propio bot
-               || existing.find(h => h.name === (process.env.SERVER_NAME || client.user.username));
+        const hooks = await target.fetchWebhooks();
+        let hook = hooks.find(h => h.owner?.id === client.user.id)
+               || hooks.find(h => h.name === (process.env.SERVER_NAME || client.user.username));
 
         if (!hook) {
           hook = await target.createWebhook({
             name: process.env.SERVER_NAME || client.user.username,
-            avatar: client.user.displayAvatarURL({ extension: 'png', size: 128 })
+            avatar: client.user.displayAvatarURL({ extension: 'png', size: 128 }),
           });
         }
+
         sent = await hook.send(payload);
-      } catch (e) {
-        // si falla webhook, probamos envío normal
+      } catch (_) {
+        // si falla, se intenta como mensaje normal
       }
     }
 
-    // Intento 2: envío normal del bot
+    // 2) Mensaje normal (APP) si no se usó webhook
     if (!sent) {
-      try {
-        sent = await target.send(payload);
-      } catch (e) {
-        return interaction.editReply('❌ No pude enviar el mensaje en ese canal.');
-      }
+      await target.send(payload);
     }
 
-    await interaction.editReply(`✅ Enviado como **${client.user.username}** en ${target}.`);
-  }
+    await interaction.editReply('✅ Mensaje enviado.');
+  },
 };
