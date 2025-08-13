@@ -37,11 +37,8 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(DARK_GRAY)
       .setDescription([
-        '¡Bienvenid@ a **CocoCraft**!',
-        'Antes de comenzar tu aventura en nuestras modalidades — **Towny (ciudades y economía)**, **Survival**, y **Minijuegos** — te pedimos leer y respetar nuestro **Código de Conducta de CocoCraft**.',
-        'Buscamos un ambiente **seguro, respetuoso y divertido** para tod@s.',
-        'A continuación verás las reglas publicadas por secciones. Si ya eres parte de la comunidad, tómate un minuto para repasarlas; si eres nuevo, este es tu punto de partida.',
-        '— *Staff de CocoCraft*'
+        'Antes de seguir explorando **CocoCraft**, recuerda que tu participación implica cumplir los [Términos de Servicio](https://discord.com/terms) y las [Directrices de la Comunidad](https://discord.com/guidelines) de Discord, además de nuestro **Código de Conducta**.',
+        'A continuación encontrarás las reglas, publicadas por secciones.'
       ].join('\n'))
       .setTimestamp();
 
