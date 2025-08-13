@@ -364,6 +364,9 @@ client.once('ready', async () => {
       const commands = [
         require('./commands/suggest').data.toJSON(),
         require('./commands/reglas').data.toJSON(),
+        require('./commands/reglas_siempre').data.toJSON(),
+        require('./commands/reglas_nunca').data.toJSON(),
+        require('./commands/reglas_consecuencias').data.toJSON(),
         require('./commands/ip').data.toJSON(),
         require('./commands/test-boost').data.toJSON(),
         require('./commands/coco').data.toJSON(),

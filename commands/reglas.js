@@ -1,5 +1,6 @@
 // commands/reglas.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { postRules } = require('../helpers/rulesHelper');
 
 const RULES_CHANNEL_ID = '1399202510367096973';
 const DARK_GRAY = 0x2b2d31; // gris oscuro
@@ -15,10 +16,6 @@ module.exports = {
           o.setName('banner')
             .setDescription('Imagen superior (opcional). Sale por fuera del embed.')
         )
-        .addBooleanOption(o =>
-          o.setName('pin')
-            .setDescription('Fijar el mensaje (por defecto: sí)')
-        )
     ),
 
   async execute(interaction) {
@@ -29,25 +26,17 @@ module.exports = {
     if (!channel) return interaction.editReply('❌ No pude encontrar el canal de reglas. Revisa el ID.');
 
     const banner = interaction.options.getAttachment('banner');
-    const shouldPin = interaction.options.getBoolean('pin');
     const files = [];
-
     if (banner) files.push({ attachment: banner.url, name: banner.name || 'banner.png' });
 
     const embed = new EmbedBuilder()
       .setColor(DARK_GRAY)
-      .setDescription([
-        'Antes de seguir explorando **CocoCraft**, recuerda que tu participación implica cumplir los [Términos de Servicio](https://discord.com/terms) y las [Directrices de la Comunidad](https://discord.com/guidelines) de Discord, además de nuestro **Código de Conducta**.',
-        'A continuación encontrarás las reglas, publicadas por secciones.'
-      ].join('\n'))
-      .setTimestamp();
+      .setDescription(
+        'Antes de seguir explorando **CocoCraft**, recuerda que tu participación implica cumplir los [Términos de Servicio](https://discord.com/terms) y las [Directrices de la Comunidad](https://discord.com/guidelines) de Discord, además de nuestro **Código de Conducta**.'
+      );
 
     const sent = await channel.send({ files, embeds: [embed], allowedMentions: { parse: [] } });
 
-    if (shouldPin !== false) { // por defecto, fijar
-      await sent.pin().catch(() => {});
-    }
-
-    await interaction.editReply(`✅ Publicado${(shouldPin !== false) ? ' y fijado' : ''} en <#${RULES_CHANNEL_ID}>. ${sent.url}`);
+    await interaction.editReply(`✅ Publicado en <#${RULES_CHANNEL_ID}>. ${sent.url}`);
   }
 };
