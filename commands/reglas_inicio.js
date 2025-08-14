@@ -1,6 +1,7 @@
 // commands/reglas.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const path = require('node:path');
+const { execute } = require('./suggest');
 const helperPath = path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js');
 console.log('Helper path ->', helperPath); // Te aparecerá en los Deploy Logs
 const { postRules } = require(helperPath);
@@ -22,7 +23,7 @@ module.exports = {
         )
     ),
 
-  async postRules(interaction) {
+  async execute(interaction) {
     if (interaction.options.getSubcommand() !== 'inicio') return;
     await interaction.deferReply({ ephemeral: true });
 

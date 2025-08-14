@@ -363,7 +363,7 @@ client.once('ready', async () => {
       // Lista de comandos (agrega aquí los que tengas)
       const commands = [
         require('./commands/suggest').data.toJSON(),
-        require('./commands/reglas').data.toJSON(),
+        require('./commands/reglas_inicio').data.toJSON(),
         require('./commands/reglas_siempre').data.toJSON(),
         require('./commands/reglas_nunca').data.toJSON(),
         require('./commands/reglas_consecuencias').data.toJSON(),
