@@ -48,11 +48,11 @@ module.exports = {
     .addAttachmentOption(o =>
       o.setName('banner').setDescription('Imagen del embed (opcional)')
     )
-    // 👇 NUEVO: logo animado para el thumbnail
     .addAttachmentOption(o =>
-      o.setName('logo').setDescription('Logo (GIF/PNG) para el thumbnail')
-  )
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+      o.setName('logo').setDescription('Logo (GIF/PNG/JPG/WEBP) para el thumbnail')
+   )
+   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    // 👇 NUEVO: logo animado para el thumbnail
 
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
@@ -67,8 +67,13 @@ module.exports = {
       ].join('\n'));
 
     if (banner?.url) embed.setImage(banner.url);
-    if (logo?.url)   embed.setThumbnail('https://media.discordapp.net/attachments/664277825280409612/1405535307440455691/Cococraft-text.gif?ex=689f2e42&is=689ddcc2&hm=2b045955706c437a95bfa5828c9f0b0dba3781b69ee56bfd0910cc8b3995131e&=&width=640&height=640.gif); // 👈 NUEVO (GIF animado soportado')
-
+    if (logo?.url) {
+  const ok = /^(image\/gif|image\/png|image\/jpe?g|image\/webp)$/i.test(logo.contentType || '');
+    if (!ok) {
+    return interaction.reply({ content: 'El archivo **logo** debe ser una imagen (gif/png/jpg/webp).', ephemeral: true });
+    }
+  embed.setThumbnail(logo.url);
+    }
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket:reporte').setLabel(LABELS.reporte).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.reporte),
       new ButtonBuilder().setCustomId('ticket:compras').setLabel(LABELS.compras).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.compras),
