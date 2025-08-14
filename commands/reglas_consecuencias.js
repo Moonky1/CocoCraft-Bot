@@ -1,7 +1,9 @@
 // commands/reglas_consecuencias.js
 const { SlashCommandBuilder } = require('discord.js');
 const path = require('node:path');
-const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
+const helperPath = path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js');
+console.log('Helper path ->', helperPath); // Te aparecerá en los Deploy Logs
+const { postRules } = require(helperPath);
 
 const PURPLE = 0x8b5cf6; // morado
 

@@ -1,7 +1,10 @@
 // commands/reglas.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const path = require('node:path');
-const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
+const helperPath = path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js');
+console.log('Helper path ->', helperPath); // Te aparecerá en los Deploy Logs
+const { postRules } = require(helperPath);
+
 
 const RULES_CHANNEL_ID = '1399202510367096973';
 const DARK_GRAY = 0x2b2d31; // gris oscuro
