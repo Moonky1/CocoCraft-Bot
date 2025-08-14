@@ -4,6 +4,8 @@ const {
   PermissionFlagsBits,
 } = require('discord.js');
 
+
+
 const PREFER_WEBHOOK = (process.env.COCO_USE_WEBHOOK || '0') === '1';
 
 module.exports = {

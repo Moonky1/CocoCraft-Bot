@@ -1,6 +1,7 @@
 // commands/reglas_consecuencias.js
 const { SlashCommandBuilder } = require('discord.js');
-const { postRules } = require('../helpers/rulesHelper');
+const path = require('node:path');
+const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
 
 const PURPLE = 0x8b5cf6; // morado
 
@@ -13,7 +14,7 @@ module.exports = {
         .setDescription('Imagen superior (opcional). Sale por fuera del embed.')
     ),
 
-  async execute(interaction) {
+  async postRules(interaction) {
     const banner = interaction.options.getAttachment('banner');
 
     const lines = [

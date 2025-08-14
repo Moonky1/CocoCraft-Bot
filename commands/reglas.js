@@ -1,6 +1,7 @@
 // commands/reglas.js
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { postRules } = require('../helpers/rulesHelper');
+const path = require('node:path');
+const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
 
 const RULES_CHANNEL_ID = '1399202510367096973';
 const DARK_GRAY = 0x2b2d31; // gris oscuro
@@ -18,7 +19,7 @@ module.exports = {
         )
     ),
 
-  async execute(interaction) {
+  async postRules(interaction) {
     if (interaction.options.getSubcommand() !== 'inicio') return;
     await interaction.deferReply({ ephemeral: true });
 
