@@ -19,7 +19,7 @@ module.exports = {
     const banner = interaction.options.getAttachment('banner');
     const SPACE = '\u200B';
     const lines = [
-      '<a:booster:1405477228317245450> ## **Recompensas por boostear**',
+      '<a:booster:1405477228317245450> **Recompensas por boostear**',
        SPACE,
       '_¡Obtén ventajas exclusivas al apoyar CocoCraft con un boost!_',
       '',
