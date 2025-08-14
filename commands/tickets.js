@@ -56,9 +56,9 @@ module.exports = {
       .setColor(PANEL_COLOR)
       .setTitle('Crea un ticket')
       .setDescription([
-        '> **Selecciona una categoría para empezar tu ticket**',
+        '> <a:derecha:1405531964508737548> **Selecciona una categoría para empezar tu ticket**',
         '',
-        '_Tiempo de respuesta estimado: 1–2 horas_',
+        '_Recuerda, el tiempo estimado de la resolución del ticket dependerá de la categoría y de cada caso._',
       ].join('\n'));
 
     if (banner?.url) embed.setImage(banner.url);
