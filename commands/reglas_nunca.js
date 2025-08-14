@@ -15,15 +15,16 @@ module.exports = {
 
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
+    const SPACE = '\u200B';
     const lines = [
       `${CROSS} **No spam/flood/ads.** Evita repetir mensajes, abusar de mayúsculas o pings innecesarios.`,
-
+      SPACE,
       `${CROSS} **Sin discurso de odio.** Prohibidos mensajes racistas, sexistas o degradantes.`,
-
+      SPACE,
       `${CROSS} **No suplantación.** No te presentes como staff ni como otra persona.`,
-
+      SPACE,
       `${CROSS} **No exploits/dupe.** Está prohibido aprovechar fallos o glitches; repórtalos.`,
-
+      SPACE,
       `${CROSS} **Sin doxxeo.** No difundas datos personales ni contenido privado de nadie.`
       
     ];

@@ -16,12 +16,12 @@ module.exports = {
 
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
-
+    const SPACE = '\u200B';
     const lines = [
       'El **Código de Conducta de CocoCraft** existe para garantizar y mantener un entorno seguro y acogedor para toda la comunidad.',
-
+      SPACE,
       'Quienes incumplan estas directrices pueden ver restringido o suspendido su acceso al servicio correspondiente.',
-      
+      SPACE,
       '**Quienes incumplen también pueden esperar:**',
       '> • Las sanciones pueden ampliarse o incluso volverse permanentes si se persiste en infringir el Código de Conducta.',
       '> • Un buen comportamiento sostenido con el tiempo puede reducir la duración de sanciones futuras.',
