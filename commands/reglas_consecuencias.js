@@ -19,7 +19,9 @@ module.exports = {
 
     const lines = [
       'El **Código de Conducta de CocoCraft** existe para garantizar y mantener un entorno seguro y acogedor para toda la comunidad.',
+
       'Quienes incumplan estas directrices pueden ver restringido o suspendido su acceso al servicio correspondiente.',
+      
       '**Quienes incumplen también pueden esperar:**',
       '> • Las sanciones pueden ampliarse o incluso volverse permanentes si se persiste en infringir el Código de Conducta.',
       '> • Un buen comportamiento sostenido con el tiempo puede reducir la duración de sanciones futuras.',

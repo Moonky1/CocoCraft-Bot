@@ -16,11 +16,16 @@ module.exports = {
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
     const lines = [
-      `${CROSS} **No spam/flood/ads.** Nada de enlaces maliciosos o autopromoción no autorizada.`,
-      `${CROSS} **No lenguaje de odio.** Prohibido contenido racista, sexista u ofensivo.`,
-      `${CROSS} **No suplantación.** No te hagas pasar por staff u otros jugadores.`,
-      `${CROSS} **No exploits/dupe.** Aprovechar fallos o glitches está prohibido.`,
-      `${CROSS} **No doxxing.** No publiques información privada de nadie.`
+      `${CROSS} **No spam/flood/ads.** Evita repetir mensajes, abusar de mayúsculas o pings innecesarios.`,
+
+      `${CROSS} **Sin discurso de odio.** Prohibidos mensajes racistas, sexistas o degradantes.`,
+
+      `${CROSS} **No suplantación.** No te presentes como staff ni como otra persona.`,
+
+      `${CROSS} **No exploits/dupe.** Está prohibido aprovechar fallos o glitches; repórtalos.`,
+
+      `${CROSS} **Sin doxxeo.** No difundas datos personales ni contenido privado de nadie.`
+      
     ];
     await postRules(interaction, { color: RED, lines, banner });
   }

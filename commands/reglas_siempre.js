@@ -16,12 +16,15 @@ module.exports = {
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
     const lines = [
-      `${CHECK} **Respeta a todos.** Nada de insultos, acoso, discriminación o lenguaje tóxico.`,
-      `${CHECK} **Sé considerado.** El humor puede malinterpretarse; evita provocar o molestar.`,
-      `${CHECK} **Protege tu privacidad.** No compartas datos personales tuyos ni de terceros.`,
+      `${CHECK} **Trata a todos con respeto.** Evita comentarios despectivos y mantén un tono cordial.`,
+
+      `${CHECK} **Sé considerado.** El sarcasmo y las bromas pueden malinterpretarse; busca que el mensaje sea claro.`,
+
+      `${CHECK} **Cuida tu privacidad.** No compartas datos personales, capturas o DMs sin permiso.`,
+
+      `${CHECK} **Juega Limpio.** Sin ventajas externas, autoclickers, macros ni clientes modificados que den ventaja.`,
+
       `${CHECK} **Sigue al staff.** Sus indicaciones mantienen el orden del servidor.`,
-      `${CHECK} **Juega limpio.** Sin trampas, macros, exploits ni abuso de bugs; repórtalos.`,
-      `${CHECK} **Usa el sentido común.** Si dudas, pregunta antes de actuar.`
     ];
     await postRules(interaction, { color: GREEN, lines, banner });
   }
