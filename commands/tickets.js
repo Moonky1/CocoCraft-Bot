@@ -67,7 +67,7 @@ module.exports = {
       ].join('\n'));
 
     if (banner?.url) embed.setImage(banner.url);
-    if (logo?.url)   embed.setThumbnail('https://media.discordapp.net/attachments/664277825280409612/1405535307440455691/Cococraft-text.gif?ex=689f2e42&is=689ddcc2&hm=2b045955706c437a95bfa5828c9f0b0dba3781b69ee56bfd0910cc8b3995131e&=&width=640&height=640); // 👈 NUEVO (GIF animado soportado')
+    if (logo?.url)   embed.setThumbnail('https://media.discordapp.net/attachments/664277825280409612/1405535307440455691/Cococraft-text.gif?ex=689f2e42&is=689ddcc2&hm=2b045955706c437a95bfa5828c9f0b0dba3781b69ee56bfd0910cc8b3995131e&=&width=640&height=640.gif); // 👈 NUEVO (GIF animado soportado')
 
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket:reporte').setLabel(LABELS.reporte).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.reporte),
