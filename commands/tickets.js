@@ -11,23 +11,23 @@ const {
   ChannelType,
   PermissionFlagsBits,
 } = require('discord.js');
+const path = require('node:path');
+const fs   = require('node:fs');
 
-const SUPPORT_CATEGORY_ID = '1399207365886345246';  // Categoría Soporte
-const STAFF_ROLE_ID       = '1146355437696974878';  // Rol staff
-const PANEL_COLOR         = 0x4cadd0;               // #4cadd0
+// ====== CONFIG ======
+const SUPPORT_CATEGORY_ID = '1399207365886345246';
+const STAFF_ROLE_ID       = '1146355437696974878';
+const PANEL_COLOR         = 0x4cadd0;
 
-// Pon aquí tus EMOJIS **animados** o estáticos por categoría.
-// Cómo obtener el ID: escribe "\" + el emoji en Discord para ver algo como <a:nombre:1234567890>
-// Luego pégalo aquí como { id:'1234567890', animated:true, name:'nombre' }.
-// NO uses fallback (si lo dejas vacío, el botón no tendrá emoji).
+// Emojis animados (IDs provistos)
 const EMOJIS = {
-  reporte:   { id: '1405529661529653338',   animated: true, name: 'reporte' },
-  compras:   { id: '1405529067297574912',   animated: true, name: 'cococoins' },
-  bugs:      { id: '1405529198264844392',      animated: true, name: 'bugs' },
+  reporte:   { id: '1405529661529653338', animated: true, name: 'reporte'   },
+  compras:   { id: '1405529067297574912', animated: true, name: 'cococoins' },
+  bugs:      { id: '1405529198264844392', animated: true, name: 'bugs'      },
   apelacion: { id: '1405528646868799558', animated: true, name: 'apelacion' },
-  pass:      { id: '1405528738929836184',      animated: true, name: 'password' },
-  dudas:     { id: '1405529268997328916',     animated: true, name: 'dudas' },
-  booster:   { id: '1405529149208133744',   animated: true, name: 'booster3' },
+  pass:      { id: '1405528738929836184', animated: true, name: 'password'  },
+  dudas:     { id: '1405529268997328916', animated: true, name: 'dudas'     },
+  booster:   { id: '1405529149208133744', animated: true, name: 'booster3'  },
 };
 
 const LABELS = {
@@ -40,7 +40,6 @@ const LABELS = {
   booster:   'Booster',
 };
 
-// ---- Publica el PANEL ----
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ticket_panel')
@@ -48,32 +47,30 @@ module.exports = {
     .addAttachmentOption(o =>
       o.setName('banner').setDescription('Imagen del embed (opcional)')
     )
-    .addAttachmentOption(o =>
-      o.setName('logo').setDescription('Logo (GIF/PNG/JPG/WEBP) para el thumbnail')
-   )
-   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-    // 👇 NUEVO: logo animado para el thumbnail
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
-    const logo   = interaction.options.getAttachment('logo'); // 👈 NUEVO
+
     const embed = new EmbedBuilder()
       .setColor(PANEL_COLOR)
       .setTitle('Crea un ticket')
       .setDescription([
-        '> <a:derecha:1405531964508737548> **Selecciona una categoría para empezar tu ticket**',
+        '> **Selecciona una categoría para empezar tu ticket**',
         '',
-        '_Recuerda, el tiempo estimado de la resolución del ticket dependerá de la categoría y de cada caso_',
+        '_Tiempo de respuesta estimado: 1–2 horas_',
       ].join('\n'));
 
     if (banner?.url) embed.setImage(banner.url);
-    if (logo?.url) {
-  const ok = /^(image\/gif|image\/png|image\/jpe?g|image\/webp)$/i.test(logo.contentType || '');
-    if (!ok) {
-    return interaction.reply({ content: 'El archivo **logo** debe ser una imagen (gif/png/jpg/webp).', ephemeral: true });
+
+    // Thumbnail desde archivo local: assets/images/logo.gif
+    const files = [];
+    const localLogoPath = path.resolve(__dirname, '..', 'assets', 'images', 'logo.gif');
+    if (fs.existsSync(localLogoPath)) {
+      files.push({ attachment: localLogoPath, name: 'logo.gif' });
+      embed.setThumbnail('attachment://logo.gif');
     }
-  embed.setThumbnail(logo.url);
-    }
+
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('ticket:reporte').setLabel(LABELS.reporte).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.reporte),
       new ButtonBuilder().setCustomId('ticket:compras').setLabel(LABELS.compras).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.compras),
@@ -88,15 +85,17 @@ module.exports = {
     );
 
     await interaction.reply({ content: '✅ Panel de tickets publicado.', ephemeral: true });
-    await interaction.channel.send({ embeds: [embed], components: [row1, row2] });
+
+    const payload = { embeds: [embed], components: [row1, row2] };
+    if (files.length) payload.files = files;
+
+    await interaction.channel.send(payload);
   },
 
-  // ---- Maneja los botones: abre el MODAL ----
   async handleButton(interaction) {
     const [, kind] = interaction.customId.split(':');
     const label = LABELS[kind] || 'Soporte';
 
-    // Modal estilo captura: Nick, Modalidad, Duda
     const modal = new ModalBuilder()
       .setCustomId(`ticketModal:${kind}`)
       .setTitle(`Crear un ticket de ${label}`);
@@ -118,7 +117,7 @@ module.exports = {
     const campoDuda = new TextInputBuilder()
       .setCustomId('detalle')
       .setLabel('¿Cuál es tu duda/caso?')
-      .setPlaceholder('Describe tu caso. Puedes incluir IDs, pruebas o contexto.')
+      .setPlaceholder('Describe tu caso. Incluye pruebas o IDs si aplica.')
       .setStyle(TextInputStyle.Paragraph)
       .setRequired(true);
 
@@ -131,7 +130,6 @@ module.exports = {
     await interaction.showModal(modal);
   },
 
-  // ---- Maneja el envío del MODAL: crea el canal ----
   async handleModal(interaction) {
     const [, kind] = interaction.customId.split(':');
     const label = LABELS[kind] || 'Soporte';
@@ -140,7 +138,6 @@ module.exports = {
     const modo    = interaction.fields.getTextInputValue('modo').trim();
     const detalle = interaction.fields.getTextInputValue('detalle').trim();
 
-    // Evitar duplicados del mismo usuario
     const existing = interaction.guild.channels.cache.find(
       ch => ch.parentId === SUPPORT_CATEGORY_ID && ch.topic === interaction.user.id
     );
@@ -175,7 +172,6 @@ module.exports = {
       reason: `Ticket ${label} por ${interaction.user.tag}`,
     });
 
-    // Mensaje de apertura dentro del ticket
     const open = new EmbedBuilder()
       .setColor(PANEL_COLOR)
       .setTitle(`Ticket • ${label}`)
