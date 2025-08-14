@@ -7,6 +7,7 @@ const { Client, GatewayIntentBits, ActivityType, Events, Collection, AttachmentB
 const { registerFont, createCanvas, loadImage } = require('canvas');
 const { Rcon } = require('rcon-client');
 const { status } = require('minecraft-server-util');
+const ticketPanel = require('./commands/tickets.js'); // ajusta la ruta si es necesario
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Keep-Alive HTTP (Railway)
@@ -82,19 +83,37 @@ if (fs.existsSync(commandsPath)) {
 }
 
 // Handler de slash
-client.on(Events.InteractionCreate, async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  const cmd = client.commands.get(interaction.commandName);
-  if (!cmd) return interaction.reply({ content: '❌ Comando no encontrado.', ephemeral: true });
+client.on(Events.InteractionCreate, async (interaction) => {
   try {
-    await cmd.execute(interaction);
+    // 1) Slash commands
+    if (interaction.isChatInputCommand()) {
+      const cmd = client.commands.get(interaction.commandName);
+      if (!cmd) {
+        return interaction.reply({ content: '❌ Comando no encontrado.', ephemeral: true });
+      }
+      return await cmd.execute(interaction);
+    }
+
+    // 2) Botones del panel de tickets
+    if (interaction.isButton() && interaction.customId.startsWith('ticket:')) {
+      return await ticketPanel.handleButton(interaction);
+    }
+
+    // 3) Envío del modal de tickets
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('ticketModal:')) {
+      return await ticketPanel.handleModal(interaction);
+    }
+
+    // (opcional) aquí puedes enrutar otros tipos: select menus, context menus, etc.
+
   } catch (err) {
     console.error(err);
-    const msg = { content: '❌ Ocurrió un error ejecutando el comando.', ephemeral: true };
-    if (interaction.deferred || interaction.replied) await interaction.editReply(msg.content);
+    const msg = { content: '⚠️ Ocurrió un error ejecutando la interacción.', ephemeral: true };
+    if (interaction.deferred || interaction.replied) await interaction.editReply(msg);
     else await interaction.reply(msg);
   }
 });
+
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado (vía RCON/Status) → renombra canales
