@@ -1,10 +1,6 @@
-const { SlashCommandBuilder } = require('discord.js');
 const path = require('node:path');
-const helperPath = path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js');
-console.log('Helper path ->', helperPath); // Te aparecerá en los Deploy Logs
-const { postRules } = require(helperPath);
-
-
+const { SlashCommandBuilder } = require('discord.js');
+const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
 
 const GREEN = 0x22c55e;
 const CHECK = '<:siempre:1405074502303481938>'; // ← reemplaza por tu emoji del server
@@ -17,7 +13,7 @@ module.exports = {
       o.setName('banner').setDescription('Imagen superior opcional (sale por fuera del embed).')
     ),
 
-  async postRules(interaction) {
+  async execute(interaction) {
     const banner = interaction.options.getAttachment('banner');
     const lines = [
       `${CHECK} **Respeta a todos.** Nada de insultos, acoso, discriminación o lenguaje tóxico.`,

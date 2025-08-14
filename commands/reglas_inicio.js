@@ -1,18 +1,14 @@
 // commands/reglas.js
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const path = require('node:path');
-const { execute } = require('./suggest');
-const helperPath = path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js');
-console.log('Helper path ->', helperPath); // Te aparecerá en los Deploy Logs
-const { postRules } = require(helperPath);
-
+const { SlashCommandBuilder } = require('discord.js');
+const { postRules } = require(path.resolve(__dirname, '..', 'helpers', 'rulesHelper.js'));
 
 const RULES_CHANNEL_ID = '1399202510367096973';
 const DARK_GRAY = 0x2b2d31; // gris oscuro
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('reglas')
+    .setName('reglas_inicio')
     .setDescription('Publica/actualiza las reglas por secciones')
     .addSubcommand(sc =>
       sc.setName('inicio')
