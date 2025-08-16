@@ -97,7 +97,6 @@ module.exports = {
           '### ¿Ya estabas vinculado?',
           'Si compraste rangos nuevos o recibiste boosters, vuelve a verificar para actualizar tus roles.',
           '',
-          '> ℹ️ Si no recibes DM, habilita **Allow direct messages from server members** en la configuración de privacidad del servidor.',
         ].join('\n'));
 
       // Banner (fuera del embed) si existe
