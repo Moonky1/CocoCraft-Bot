@@ -26,6 +26,8 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ]
 });
+// Cargar el listener del canal de verificación (espera ~15s y DM)
+require('./events/verify-code-listener')(client);
 
 // ── Boost detector ────────────────────────────────────────────────────────────
 const BOOST_CHANNEL_ID  = process.env.BOOST_CHANNEL_ID  || '1404007396988289065'; // #boosts
@@ -165,43 +167,6 @@ async function updateChannelNames() {
     console.error('⚠️ Error renaming channels:', err);
   }
 }
-
-// ───────────────────────────────────────────────────────────────────────────────
-// Verificación: canal que borra mensajes y procesa códigos
-const VERIFY_CHANNEL_ID = process.env.VERIFY_CHANNEL_ID;
-async function tempMsg(channel, content, ms = 7000) {
-  const m = await channel.send({ content });
-  setTimeout(() => m.delete().catch(() => {}), ms);
-  return m;
-}
-async function verifyWithServer(discordId, code) {
-  await new Promise(r => setTimeout(r, 300));
-  return /^\d{4,8}$/.test(code);
-}
-client.on(Events.MessageCreate, async msg => {
-  if (!msg.guild || msg.author.bot) return;
-  if (!VERIFY_CHANNEL_ID || msg.channelId !== VERIFY_CHANNEL_ID) return;
-
-  try { await msg.delete(); } catch {}
-
-  const match = msg.content.match(/\b\d{4,8}\b/);
-  if (!match) {
-    return tempMsg(msg.channel, `❌ ${msg.member} envía **solo tu código** generado con \`/discord link\`.`, 7000);
-  }
-  const code = match[0];
-
-  try {
-    const ok = await verifyWithServer(msg.author.id, code);
-    if (ok) {
-      await tempMsg(msg.channel, `✅ ${msg.member} ¡ya has vinculado tu cuenta! Tus roles se sincronizarán en unos segundos.`, 7000);
-    } else {
-      await tempMsg(msg.channel, `❌ ${msg.member} el código **${code}** no es válido o expiró. Vuelve a ejecutar \`/discord link\`.`, 7000);
-    }
-  } catch (e) {
-    console.error('verify error', e);
-    await tempMsg(msg.channel, `⚠️ ${msg.member} hubo un error procesando tu código. Intenta nuevamente en 1–2 minutos.`, 7000);
-  }
-});
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas  (fuente + fondo + avatar)
@@ -389,7 +354,6 @@ client.once('ready', async () => {
         require('./commands/ip').data.toJSON(),
         require('./commands/test-boost').data.toJSON(),
         require('./commands/coco').data.toJSON(),
-        require('./events/verify-code-listener')(client),
         require('./commands/user').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
