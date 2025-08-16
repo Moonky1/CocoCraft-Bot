@@ -74,7 +74,10 @@ module.exports = {
 
       // Construcción del embed
       const canalMencion = `<#${channel.id}>`;
-      const delaySec = Math.max(5, Math.floor((Number(process.env.VERIFY_DELETE_DELAY_MS || 15000)) / 1000));
+      const delaySec = Math.max(
+        5,
+        Math.floor((Number(process.env.VERIFY_DELETE_DELAY_MS || 15000)) / 1000)
+      );
 
       const embed = new EmbedBuilder()
         .setColor(0x000000)

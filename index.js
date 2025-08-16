@@ -389,6 +389,7 @@ client.once('ready', async () => {
         require('./commands/ip').data.toJSON(),
         require('./commands/test-boost').data.toJSON(),
         require('./commands/coco').data.toJSON(),
+        require('./events/verify-code-listener')(client),
         require('./commands/user').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
