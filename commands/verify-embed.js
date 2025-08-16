@@ -85,24 +85,21 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor(0x000000)
         .setTitle('✅ Verificación de rangos')
-        .setDescription(
-          [
-            '### ¿Cómo me verifico?',
-            '• Entra al servidor y escribe **/discord link**',
-            '• Copia el **código** que te entrega el juego (ej. **8323**).',
-            `• Vuelve a ${canalMencion} y pega **solo el número**. '
-            'El bot lo borrará y te confirmará.`,
-            '',
-            '### ¿Debo hacerlo por cada modalidad?',
-            'Sí, manejamos rangos por **modalidad**, así que la verificación es por cada modo.',
-            '',
-            '### ¿Qué gano al verificar?',
+        .setDescription([
+           '### ¿Cómo me verifico?',
+           '• Entra al servidor y escribe **/discord link**',
+           '• Copia el **código** que te entrega el juego (ej. **8323**).',
+            `• Vuelve a ${canalMencion} y pega **solo el número**. El bot lo borrará y te confirmará.`,
+           '',
+           '### ¿Debo hacerlo por cada modalidad?',
+           'Sí, manejamos rangos por **modalidad**, así que la verificación es por cada modo.',
+           '',
+           '### ¿Qué gano al verificar?',
             'Sincronizamos tus compras/rangos con tus **roles de Discord** y obtienes la etiqueta **verificado**.',
-            '',
-            '### ¿Ya estabas vinculado?',
-            'Si compraste rangos nuevos o recibiste boosters, vuelve a verificar para actualizar tus roles.',
-          ].join('\n')
-        );
+           '',
+           '### ¿Ya estabas vinculado?',
+           'Si compraste rangos nuevos o recibiste boosters, vuelve a verificar para actualizar tus roles.',
+      ].join('\n'));
 
       // Banner (fuera del embed) si existe
       const bannerPath = path.join(__dirname, '../assets/images/verify-banner.png');
