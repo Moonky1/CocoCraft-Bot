@@ -13,6 +13,7 @@ const {
 } = require('discord.js');
 const path = require('node:path');
 const fs   = require('node:fs');
+const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/paths');
 
 // ====== CONFIG ======
 const SUPPORT_CATEGORY_ID = '1399207365886345246';
@@ -198,7 +199,10 @@ async function closeTicket(interaction) {
     fs.writeFileSync(filepath, html, 'utf8');
 
     if (PUBLIC_BASE_URL) {
-      publicUrl = `${PUBLIC_BASE_URL}/transcripts/${filename}`;
+      const publicUrl = PUBLIC_BASE_URL
+  ? `${PUBLIC_BASE_URL}/transcripts/${filename}`
+  : null;
+
     }
   } catch (e) {
     console.error('transcript build/write error', e);
@@ -231,7 +235,22 @@ async function closeTicket(interaction) {
   } catch (e) {
     console.error('logs send error', e);
   }
+    const components = [];
+  if (publicUrl) {
+    components.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel('Transcript ↗')
+        .setURL(publicUrl)
+    ));
+  }
 
+  const toSend = { embeds: [summaryEmbed], components };
+  if (fs.existsSync(filepath)) {
+    // adjunta el HTML por si acaso (fallback si la URL falla)
+    toSend.files = [{ attachment: filepath, name: filename }];
+  }
+  await logsChannel.send(toSend);
   // Aviso y borrado del canal
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);

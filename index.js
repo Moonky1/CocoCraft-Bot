@@ -5,6 +5,7 @@ require('dotenv').config();
 const fs   = require('fs');
 const path = require('path');
 const express = require('express');
+const { TRANSCRIPT_DIR } = require('./helpers/paths');
 
 // ── Discord / otras libs
 const {
@@ -21,6 +22,12 @@ const ticketPanel = require('./commands/tickets.js'); // panel de tickets
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 Bot alive'));
+
+app.get('/_transcripts', (_req, res) => {
+  fs.readdir(TRANSCRIPT_DIR, (err, files) => {
+    res.json({ dir: TRANSCRIPT_DIR, files, err: err ? String(err) : null });
+  });
+});
 
 // Puedes apuntar a un Volume con TRANSCRIPT_DIR=/data/transcripts en .env
 const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || path.join(__dirname, 'transcripts');
