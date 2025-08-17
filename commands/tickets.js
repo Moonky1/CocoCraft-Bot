@@ -13,7 +13,7 @@ const {
 } = require('discord.js');
 const path = require('node:path');
 const fs   = require('node:fs');
-const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/paths');
+const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/path');
 const LOGS_CHANNEL_ID = '1404021560997707856';
 
 // ====== CONFIG ======

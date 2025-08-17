@@ -5,7 +5,7 @@ require('dotenv').config();
 const fs   = require('fs');
 const path = require('path');
 const express = require('express');
-const { TRANSCRIPT_DIR } = require('./helpers/paths');
+const { TRANSCRIPT_DIR } = require('./helpers/path');
 
 // ── Discord / otras libs
 const {
