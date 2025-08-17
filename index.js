@@ -1,48 +1,58 @@
-// index.js
+// index.js (inicio ordenado)
 require('dotenv').config();
 
-const express = require('express');
+// ── Core deps: deben ir ANTES de usarse
+const fs   = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, ActivityType, Events, Collection, AttachmentBuilder } = require('discord.js');
+const express = require('express');
+
+// ── Discord / otras libs
+const {
+  Client, GatewayIntentBits, ActivityType, Events, Collection, AttachmentBuilder
+} = require('discord.js');
 const { registerFont, createCanvas, loadImage } = require('canvas');
 const { Rcon } = require('rcon-client');
 const { status } = require('minecraft-server-util');
-const ticketPanel = require('./commands/tickets.js'); // ajusta la ruta si es necesario 
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Keep-Alive HTTP (Railway)
+const ticketPanel = require('./commands/tickets.js'); // panel de tickets
+
+// ───────────────────────────────────────────────────────────────
+// Keep-Alive HTTP (Railway) + archivos de transcripts
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 Bot alive'));
-app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
-// === NEW: servir transcripts estáticos ===
+// Puedes apuntar a un Volume con TRANSCRIPT_DIR=/data/transcripts en .env
 const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || path.join(__dirname, 'transcripts');
 if (!fs.existsSync(TRANSCRIPT_DIR)) fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true });
 
-// Sirve archivos como https://TU-DOMINIO/transcripts/ticket-123.html
+// Sirve https://TU-DOMINIO/transcripts/archivo.html
 app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
+  // cache largo; no borra nada, solo headers
   maxAge: '1y',
   setHeaders(res) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
 }));
 
-// ───────────────────────────────────────────────────────────────────────────────
+app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
+
+// ───────────────────────────────────────────────────────────────
 // Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.MessageContent,
+  ],
 });
+
 // Cargar el listener del canal de verificación (espera ~15s y DM)
 require('./events/verify-code-listener')(client);
 
-// ── Boost detector ────────────────────────────────────────────────────────────
-const BOOST_CHANNEL_ID  = process.env.BOOST_CHANNEL_ID  || '1404007396988289065'; // #boosts
+// ── Boost detector ────────────────────────────────────────────
+const BOOST_CHANNEL_ID   = process.env.BOOST_CHANNEL_ID   || '1404007396988289065'; // #boosts
 const TICKETS_CHANNEL_ID = process.env.TICKETS_CHANNEL_ID || '1399207405602082816'; // #tickets
 
 // anti-duplicado por si Discord emite varios updates seguidos del mismo user
@@ -50,11 +60,9 @@ const recentBoosters = new Map(); // userId -> timestamp
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
   try {
-    // empezó a boostear (antes no tenía premiumSince y ahora sí)
     const startedBoost =
       (!oldMember.premiumSince && !!newMember.premiumSince) ||
       (!oldMember.premiumSinceTimestamp && !!newMember.premiumSinceTimestamp);
-
     if (!startedBoost) return;
 
     // Debounce 60s por usuario
@@ -72,8 +80,8 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
       return;
     }
 
-    const msg =
-      `**¡Gracias por el boost ${newMember}!** Con este ya sumamos **${totalBoosts}** boosts. Canjea tus premios en <#${TICKETS_CHANNEL_ID}>.`;
+    const msg = `**¡Gracias por el boost ${newMember}!** Con este ya sumamos **${totalBoosts}** boosts. `
+              + `Canjea tus premios en <#${TICKETS_CHANNEL_ID}>.`;
 
     await ch.send(msg);
   } catch (err) {
@@ -81,9 +89,10 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   }
 });
 
+// ───────────────────────────────────────────────────────────────
 // Carga de slash /commands
 client.commands = new Collection();
-const fs = require('fs');
+
 const commandsPath = path.join(__dirname, 'commands');
 if (fs.existsSync(commandsPath)) {
   const files = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
@@ -96,7 +105,8 @@ if (fs.existsSync(commandsPath)) {
   console.log(`✅ Cargados ${client.commands.size} comandos.`);
 }
 
-// Handler de slash
+// ───────────────────────────────────────────────────────────────
+// Handler de interacciones
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     // 1) Slash commands
@@ -118,8 +128,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return await ticketPanel.handleModal(interaction);
     }
 
-    // (opcional) aquí puedes enrutar otros tipos: select menus, context menus, etc.
-
+    // (aquí puedes enrutar otros tipos si quieres)
   } catch (err) {
     console.error(err);
     const msg = { content: '⚠️ Ocurrió un error ejecutando la interacción.', ephemeral: true };
@@ -127,7 +136,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     else await interaction.reply(msg);
   }
 });
-
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado (vía RCON/Status) → renombra canales
@@ -369,8 +377,6 @@ client.once('ready', async () => {
         require('./commands/user').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
-      const fs = require('fs');
-      const path = require('path');
 
       const commandsPath = path.join(__dirname, 'commands');
       const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
