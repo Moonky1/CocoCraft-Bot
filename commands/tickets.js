@@ -14,11 +14,11 @@ const {
 const path = require('node:path');
 const fs   = require('node:fs');
 const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/paths');
+const LOGS_CHANNEL_ID = '1404021560997707856';
 
 // ====== CONFIG ======
 const SUPPORT_CATEGORY_ID = '1399207365886345246';
 const STAFF_ROLE_ID       = '1146355437696974878';
-const LOGS_CHANNEL_ID     = '1404021560997707856';            // canal de logs
 const PANEL_COLOR         = 0x4cadd0;
 const DELETE_DELAY_MS     = 4000;
 

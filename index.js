@@ -29,10 +29,6 @@ app.get('/_transcripts', (_req, res) => {
   });
 });
 
-// Puedes apuntar a un Volume con TRANSCRIPT_DIR=/data/transcripts en .env
-const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || path.join(__dirname, 'transcripts');
-if (!fs.existsSync(TRANSCRIPT_DIR)) fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true });
-
 // Sirve https://TU-DOMINIO/transcripts/archivo.html
 app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
   // cache largo; no borra nada, solo headers
