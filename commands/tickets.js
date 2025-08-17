@@ -235,22 +235,7 @@ async function closeTicket(interaction) {
   } catch (e) {
     console.error('logs send error', e);
   }
-    const components = [];
-  if (publicUrl) {
-    components.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel('Transcript ↗')
-        .setURL(publicUrl)
-    ));
-  }
-
-  const toSend = { embeds: [summaryEmbed], components };
-  if (fs.existsSync(filepath)) {
-    // adjunta el HTML por si acaso (fallback si la URL falla)
-    toSend.files = [{ attachment: filepath, name: filename }];
-  }
-  await logsChannel.send(toSend);
+  
   // Aviso y borrado del canal
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);
