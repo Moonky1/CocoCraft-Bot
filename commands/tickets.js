@@ -12,22 +12,68 @@ const {
   PermissionFlagsBits,
 } = require('discord.js');
 const path = require('node:path');
-const fs = require('node:fs');
+const fs   = require('node:fs');
 
-// OJO: este import debe coincidir con tu archivo helpers/path.js (singular)
+// OJO: tu helper se llama "path.js" (singular)
 const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/path');
 
-const LOGS_CHANNEL_ID = '1404021560997707856';
+const LOGS_CHANNEL_ID        = '1404021560997707856';
+const SUPPORT_CATEGORY_ID    = '1399207365886345246';
+const STAFF_ROLE_ID          = '1146355437696974878';
+const PANEL_COLOR            = 0x4cadd0;
+const DELETE_DELAY_MS        = 4000;
 
-// ====== CONFIG ======
-const SUPPORT_CATEGORY_ID = '1399207365886345246';
-const STAFF_ROLE_ID       = '1146355437696974878';
-const PANEL_COLOR         = 0x4cadd0;
-const DELETE_DELAY_MS     = 4000;
+// Si alguna vez quieres volver a adjuntar el HTML al mensaje de logs, pon true
+const ATTACH_TRANSCRIPT_FILE = false;
 
-// ====================== helpers ======================
+// Emojis animados (IDs provistos)
+const EMOJIS = {
+  reporte:   { id: '1405529661529653338', animated: true, name: 'reporte'   },
+  compras:   { id: '1405529067297574912', animated: true, name: 'cococoins' },
+  bugs:      { id: '1405529198264844392', animated: true, name: 'bugs'      },
+  apelacion: { id: '1405528646868799558', animated: true, name: 'apelacion' },
+  pass:      { id: '1405528738929836184', animated: true, name: 'password'  },
+  dudas:     { id: '1405529268997328916', animated: true, name: 'dudas'     },
+  booster:   { id: '1405529149208133744', animated: true, name: 'booster3'  },
+};
+
+const LABELS = {
+  reporte:   'Reporte',
+  compras:   'Compras',
+  bugs:      'Bugs',
+  apelacion: 'Apelación',
+  pass:      'Contraseñas',
+  dudas:     'Dudas',
+  booster:   'Booster',
+};
+
+// ---------- helpers ----------
 function escapeHtml(s = '') {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Renderiza texto con emojis custom en <img>
+function renderContentWithEmojis(raw = '') {
+  const tokens = [];
+  let idx = 0;
+
+  // Reemplaza <a:name:id> / <:name:id> por marcadores temporales
+  const replaced = raw.replace(/<(?:(a)?):([a-zA-Z0-9_~]+):(\d+)>/g, (_, animated, name, id) => {
+    const key = `__E${idx++}__`;
+    const ext = animated ? 'gif' : 'webp';
+    const url = `https://cdn.discordapp.com/emojis/${id}.${ext}?size=48&quality=lossless`;
+    tokens.push({ key, tag: `<img class="emoji" alt=":${escapeHtml(name)}:" src="${url}">` });
+    return key;
+  });
+
+  // Escapa el resto y recoloca los <img>
+  let html = escapeHtml(replaced);
+  for (const { key, tag } of tokens) {
+    html = html.split(key).join(tag);
+  }
+  return html;
 }
 
 async function fetchAllMessages(channel) {
@@ -52,6 +98,10 @@ function messageAvatarUrl(msg) {
   return msg.author.displayAvatarURL({ extension: 'png', size: 128 });
 }
 
+function looksLikeImage(url = '') {
+  return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(url);
+}
+
 async function buildHtmlTranscript(channel, closedById) {
   const openerId = channel.topic || 'unknown';
   const createdISO = new Date(channel.createdTimestamp).toISOString();
@@ -63,25 +113,33 @@ async function buildHtmlTranscript(channel, closedById) {
     const name   = escapeHtml(m.member?.displayName || m.author.username);
     const color  = memberDisplayColorHex(m);
     const avatar = messageAvatarUrl(m);
-    const disc   = m.author.discriminator ?? '0000';
-    const parts  = [];
 
-    const content = escapeHtml(m.content || '');
-    if (content) parts.push(`<div class="content">${content}</div>`);
+    // Texto + emojis
+    const contentHtml = m.content ? renderContentWithEmojis(m.content) : '';
 
-    // Adjuntos
+    const parts = [];
+    if (contentHtml) parts.push(`<div class="content">${contentHtml}</div>`);
+
+    // Adjuntos: imagen / video / audio / link
     if (m.attachments?.size) {
       for (const a of m.attachments.values()) {
         const safeName = escapeHtml(a.name || 'archivo');
-        parts.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
-        if (a.contentType?.startsWith?.('image/')) {
+        const ctype = a.contentType || '';
+
+        if (ctype.startsWith('image/') || (!ctype && looksLikeImage(a.url))) {
           parts.push(`<img class="att-img" src="${a.url}" alt="${safeName}">`);
+        } else if (ctype.startsWith('video/')) {
+          parts.push(`<video class="att-media" src="${a.url}" controls></video>`);
+        } else if (ctype.startsWith('audio/')) {
+          parts.push(`<audio class="att-audio" src="${a.url}" controls></audio>`);
+        } else {
+          parts.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
         }
       }
     }
 
     if (m.embeds?.length) {
-      parts.push(`<div class="embed-note">(${m.embeds.length} embed${m.embeds.length > 1 ? 's' : ''})</div>`);
+      parts.push(`<div class="embed-note">(${m.embeds.length} embed${m.embeds.length>1?'s':''})</div>`);
     }
 
     return `
@@ -90,7 +148,7 @@ async function buildHtmlTranscript(channel, closedById) {
         <div class="body">
           <div class="head">
             <span class="name" style="color:${color}">${name}</span>
-            <span class="disc">#${disc}</span>
+            <span class="disc">#${escapeHtml(m.author.discriminator ?? '0000')}</span>
             <span class="time">${when}</span>
           </div>
           ${parts.join('\n')}
@@ -123,8 +181,11 @@ a{color:#9bd3ff;text-decoration:none} a:hover{text-decoration:underline}
 .disc{color:var(--muted);font-size:12px}
 .time{color:var(--muted);margin-left:auto;font-size:12px}
 .content{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
+.emoji{width:22px;height:22px;vertical-align:-4px}
 .att{margin-top:6px;font-size:13px}
-.att-img{display:block;max-width:320px;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
+.att-img{display:block;max-width:420px;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
+.att-media{display:block;max-width:520px;border-radius:8px;margin-top:6px;border:1px solid var(--soft);background:#000}
+.att-audio{display:block;margin-top:6px;width:320px}
 .embed-note{margin-top:6px;color:var(--muted);font-size:12px}
 .footer{padding:14px 16px;background:var(--soft);color:var(--muted);font-size:12px}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent);color:#06202b;font-weight:700;margin-left:6px}
@@ -158,7 +219,7 @@ async function closeTicket(interaction) {
   if (!ch || ch.type !== ChannelType.GuildText || ch.parentId !== SUPPORT_CATEGORY_ID) {
     return interaction.reply({ content: '❌ Este comando solo funciona dentro de un ticket.', ephemeral: true });
   }
-  const isStaff  = interaction.member.roles.cache.has(STAFF_ROLE_ID);
+  const isStaff = interaction.member.roles.cache.has(STAFF_ROLE_ID);
   const isOpener = ch.topic && interaction.user.id === ch.topic;
   if (!isStaff && !isOpener) {
     return interaction.reply({ content: '❌ Solo el autor del ticket o el staff pueden cerrarlo.', ephemeral: true });
@@ -170,7 +231,6 @@ async function closeTicket(interaction) {
   let openerId  = 'unknown';
   let filename, filepath;
 
-  // 1) Generar y guardar transcript
   try {
     const { html, openerId: op } = await buildHtmlTranscript(ch, interaction.user.id);
     openerId = op || 'unknown';
@@ -180,7 +240,6 @@ async function closeTicket(interaction) {
     filepath = path.join(TRANSCRIPT_DIR, filename);
     fs.writeFileSync(filepath, html, 'utf8');
 
-    // URL pública si tienes dominio
     if (PUBLIC_BASE_URL) {
       publicUrl = `${PUBLIC_BASE_URL}/transcripts/${filename}`;
     }
@@ -188,8 +247,7 @@ async function closeTicket(interaction) {
     console.error('transcript build/write error', e);
   }
 
-  // 2) Enviar a canal de logs (adjuntando el HTML SIEMPRE)
-  let sentLogMsg = null;
+  // Enviar a logs (solo botón + embed; sin adjuntar el HTML para evitar la “chorrera de código”)
   try {
     const logs = interaction.guild.channels.cache.get(LOGS_CHANNEL_ID);
     if (logs) {
@@ -203,28 +261,33 @@ async function closeTicket(interaction) {
         ].join('\n'))
         .setTimestamp(new Date());
 
-      const toSend = { embeds: [summary] };
-
-      // adjuntar transcript para que quede guardado en el mensaje
-      if (filepath && fs.existsSync(filepath)) {
-        toSend.files = [{ attachment: filepath, name: filename }];
+      const components = [];
+      if (publicUrl) {
+        components.push(new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(publicUrl)
+        ));
+      } else if (ATTACH_TRANSCRIPT_FILE && filepath) {
+        // Fallback: adjunta el HTML y luego crea botón a la URL del adjunto
+        const msg = await logs.send({ embeds: [summary], files: [{ attachment: filepath, name: filename }] });
+        const attach = msg.attachments.first();
+        if (attach?.url) {
+          const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(attach.url)
+          );
+          await msg.edit({ components: [row] });
+        }
+      } else {
+        await logs.send({ embeds: [summary] });
       }
 
-      sentLogMsg = await logs.send(toSend);
-
-      // Botón:
-      // - Si hay PUBLIC_BASE_URL: usa esa URL
-      // - Si no, usa la URL del adjunto que acabamos de enviar
-      let link = publicUrl;
-      if (!link && sentLogMsg.attachments.size) {
-        const att = sentLogMsg.attachments.first();
-        if (att) link = att.url; // CDN de Discord
-      }
-      if (link) {
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(link)
-        );
-        await sentLogMsg.edit({ components: [row] });
+      // Si había URL pública, envía el embed con botón en un solo paso:
+      if (publicUrl) {
+        await logs.send({
+          embeds: [summary],
+          components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(publicUrl)
+          )]
+        });
       }
     } else {
       console.warn('LOGS_CHANNEL_ID no encontrado:', LOGS_CHANNEL_ID);
@@ -233,18 +296,18 @@ async function closeTicket(interaction) {
     console.error('logs send error', e);
   }
 
-  // 3) Aviso y borrado del canal
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);
 
-  // 4) Respuesta al ejecutor
   return interaction.editReply(publicUrl
-    ? '✅ Ticket cerrado. Envié a logs el botón **Transcript** con la URL pública.'
-    : '✅ Ticket cerrado. (Sin PUBLIC_BASE_URL: se adjuntó el HTML en logs y el botón usa el adjunto)'
+    ? '✅ Ticket cerrado. Envié a logs el botón **Transcript** con la URL.'
+    : ATTACH_TRANSCRIPT_FILE
+      ? '✅ Ticket cerrado. Envié a logs el HTML como adjunto (sin URL pública).'
+      : '✅ Ticket cerrado. (Sin URL pública y sin adjunto en logs)'
   );
 }
 
-// ==================== comando/handlers ====================
+// ============= comando/handlers =============
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ticket_panel')
@@ -268,7 +331,6 @@ module.exports = {
 
     if (banner?.url) embed.setImage(banner.url);
 
-    // Thumbnail local
     const files = [];
     const localLogoPath = path.resolve(__dirname, '..', 'assets', 'images', 'logo.gif');
     if (fs.existsSync(localLogoPath)) {
@@ -277,16 +339,16 @@ module.exports = {
     }
 
     const row1 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ticket:reporte').setLabel('Reporte').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405529661529653338', animated: true, name: 'reporte' }),
-      new ButtonBuilder().setCustomId('ticket:compras').setLabel('Compras').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405529067297574912', animated: true, name: 'cococoins' }),
-      new ButtonBuilder().setCustomId('ticket:bugs').setLabel('Bugs').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405529198264844392', animated: true, name: 'bugs' }),
-      new ButtonBuilder().setCustomId('ticket:apelacion').setLabel('Apelación').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405528646868799558', animated: true, name: 'apelacion' }),
-      new ButtonBuilder().setCustomId('ticket:pass').setLabel('Contraseñas').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405528738929836184', animated: true, name: 'password' }),
+      new ButtonBuilder().setCustomId('ticket:reporte').setLabel(LABELS.reporte).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.reporte),
+      new ButtonBuilder().setCustomId('ticket:compras').setLabel(LABELS.compras).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.compras),
+      new ButtonBuilder().setCustomId('ticket:bugs').setLabel(LABELS.bugs).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.bugs),
+      new ButtonBuilder().setCustomId('ticket:apelacion').setLabel(LABELS.apelacion).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.apelacion),
+      new ButtonBuilder().setCustomId('ticket:pass').setLabel(LABELS.pass).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.pass),
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('ticket:dudas').setLabel('Dudas').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405529268997328916', animated: true, name: 'dudas' }),
-      new ButtonBuilder().setCustomId('ticket:booster').setLabel('Booster').setStyle(ButtonStyle.Secondary).setEmoji({ id: '1405529149208133744', animated: true, name: 'booster3' }),
+      new ButtonBuilder().setCustomId('ticket:dudas').setLabel(LABELS.dudas).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.dudas),
+      new ButtonBuilder().setCustomId('ticket:booster').setLabel(LABELS.booster).setStyle(ButtonStyle.Secondary).setEmoji(EMOJIS.booster),
     );
 
     await interaction.reply({ content: '✅ Panel de tickets publicado.', ephemeral: true });
@@ -300,17 +362,7 @@ module.exports = {
     const [, kind] = interaction.customId.split(':');
     if (kind === 'close') return closeTicket(interaction);
 
-    // Abrir modal
-    const labelPorKind = {
-      reporte: 'Reporte',
-      compras: 'Compras',
-      bugs: 'Bugs',
-      apelacion: 'Apelación',
-      pass: 'Contraseñas',
-      dudas: 'Dudas',
-      booster: 'Booster',
-    };
-    const label = labelPorKind[kind] || 'Soporte';
+    const label = LABELS[kind] || 'Soporte';
 
     const modal = new ModalBuilder()
       .setCustomId(`ticketModal:${kind}`)
@@ -348,6 +400,7 @@ module.exports = {
 
   async handleModal(interaction) {
     const [, kind] = interaction.customId.split(':');
+    const label = LABELS[kind] || 'Soporte';
 
     const nick    = interaction.fields.getTextInputValue('nick').trim();
     const modo    = interaction.fields.getTextInputValue('modo').trim();
@@ -384,25 +437,22 @@ module.exports = {
       parent: SUPPORT_CATEGORY_ID,
       topic: interaction.user.id,
       permissionOverwrites: overwrites,
-      reason: `Ticket ${kind} por ${interaction.user.tag}`,
+      reason: `Ticket ${label} por ${interaction.user.tag}`,
     });
 
     const open = new EmbedBuilder()
       .setColor(PANEL_COLOR)
-      .setTitle(`Ticket • ${kind}`)
+      .setTitle(`Ticket • ${label}`)
       .setDescription([
         `**Usuario:** ${interaction.user} (${nick})`,
         `**Modalidad:** ${modo}`,
         '',
         '**Detalle:**',
-        detalle,
+        escapeHtml(detalle),
       ].join('\n'));
 
     const rowClose = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('ticket:close')
-        .setLabel('Cerrar ticket')
-        .setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId('ticket:close').setLabel('Cerrar ticket').setStyle(ButtonStyle.Danger)
     );
 
     await channel.send({
