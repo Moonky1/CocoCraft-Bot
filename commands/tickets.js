@@ -209,7 +209,7 @@ async function closeTicket(interaction) {
     const logs = interaction.guild.channels.cache.get(LOGS_CHANNEL_ID);
     if (logs) {
       const summary = new EmbedBuilder()
-        .setColor(0xfa5252)
+        .setColor(0x000000)
         .setTitle('Ticket cerrado')
         .setDescription([
           `**Canal:** ${ch.name} (${ch.id})`,
@@ -232,6 +232,23 @@ async function closeTicket(interaction) {
     console.error('logs send error', e);
   }
   
+// 5) Añadir botón:
+//    - Si hay PUBLIC_BASE_URL → botón a la URL pública
+//    - Si no, usa la URL del adjunto que acabamos de enviar
+let link = publicUrl;
+if (!link && msg.attachments.size) {
+  link = msg.attachments.first().url; // CDN de Discord
+}
+if (link) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel('Transcript ↗')
+      .setURL(link)
+  );
+  await msg.edit({ components: [row] });
+}
+
   // Aviso y borrado del canal
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);
