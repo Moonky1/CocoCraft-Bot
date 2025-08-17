@@ -34,7 +34,7 @@ app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
   },
 }));
-
+console.log('TRANSCRIPT_DIR =', TRANSCRIPT_DIR);
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
 // ───────────────────────────────────────────────────────────────
