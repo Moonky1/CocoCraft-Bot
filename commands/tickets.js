@@ -23,7 +23,6 @@ const PANEL_COLOR         = 0x4cadd0;
 const DELETE_DELAY_MS     = 4000;
 
 // Public host (agrega PUBLIC_BASE_URL en .env)
-const PUBLIC_BASE_URL     = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
 const TRANSCRIPT_DIR      = path.resolve(__dirname, '..', 'transcripts');
 
 // Emojis animados (IDs provistos)
