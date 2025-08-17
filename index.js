@@ -8,6 +8,7 @@ const { registerFont, createCanvas, loadImage } = require('canvas');
 const { Rcon } = require('rcon-client');
 const { status } = require('minecraft-server-util');
 const ticketPanel = require('./commands/tickets.js'); // ajusta la ruta si es necesario
+const fs   = require('fs');  
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Keep-Alive HTTP (Railway)
@@ -17,13 +18,15 @@ app.get('/', (_req, res) => res.send('🤖 Bot alive'));
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
 // === NEW: servir transcripts estáticos ===
-const TRANSCRIPT_DIR = path.join(__dirname, 'transcripts');
+const TRANSCRIPT_DIR = process.env.TRANSCRIPT_DIR || path.join(__dirname, 'transcripts');
 if (!fs.existsSync(TRANSCRIPT_DIR)) fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true });
 
 // Sirve archivos como https://TU-DOMINIO/transcripts/ticket-123.html
 app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
-  maxAge: '7d',
-  extensions: ['html']
+  maxAge: '1y',
+  setHeaders(res) {
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  },
 }));
 
 // ───────────────────────────────────────────────────────────────────────────────
