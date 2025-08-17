@@ -22,9 +22,6 @@ const LOGS_CHANNEL_ID     = '1404021560997707856';            // canal de logs
 const PANEL_COLOR         = 0x4cadd0;
 const DELETE_DELAY_MS     = 4000;
 
-// Public host (agrega PUBLIC_BASE_URL en .env)
-const TRANSCRIPT_DIR      = path.resolve(__dirname, '..', 'transcripts');
-
 // Emojis animados (IDs provistos)
 const EMOJIS = {
   reporte:   { id: '1405529661529653338', animated: true, name: 'reporte'   },
