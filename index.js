@@ -7,8 +7,7 @@ const { Client, GatewayIntentBits, ActivityType, Events, Collection, AttachmentB
 const { registerFont, createCanvas, loadImage } = require('canvas');
 const { Rcon } = require('rcon-client');
 const { status } = require('minecraft-server-util');
-const ticketPanel = require('./commands/tickets.js'); // ajusta la ruta si es necesario
-const fs   = require('fs');  
+const ticketPanel = require('./commands/tickets.js'); // ajusta la ruta si es necesario 
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Keep-Alive HTTP (Railway)
