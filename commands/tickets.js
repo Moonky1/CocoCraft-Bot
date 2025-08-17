@@ -23,8 +23,8 @@ const LOGS_CHANNEL_ID     = '1404021560997707856';
 const PANEL_COLOR         = 0x4cadd0;
 const DELETE_DELAY_MS     = 4000;
 
-// Si pones true, adjunta SIEMPRE el HTML (Discord mostrará preview).
-// Por defecto false: solo adjunta si NO hay PUBLIC_BASE_URL (evita el “código” arriba).
+// Si es true, adjunta SIEMPRE el HTML en logs (mostrará el bloque “código” arriba).
+// Por defecto false: si hay PUBLIC_BASE_URL no adjunta (solo botón), así evitas el bloque.
 const ATTACH_HTML_ALWAYS  = false;
 
 // Emojis animados (IDs provistos)
@@ -51,6 +51,25 @@ const LABELS = {
 // ================== HELPERS ==================
 function escapeHtml(s = '') {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Reemplaza emojis custom <a?:name:id> por <img> y escapa el resto
+function renderContentWithEmojis(raw = '') {
+  const re = /<a?:([a-zA-Z0-9_~]+):(\d+)>/g;
+  let out = '';
+  let last = 0;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const [full, name, id] = m;
+    out += escapeHtml(raw.slice(last, m.index));
+    const animated = full.startsWith('<a:');
+    const ext = animated ? 'gif' : 'webp';
+    const src = `https://cdn.discordapp.com/emojis/${id}.${ext}?size=44&quality=lossless`;
+    out += `<img class="emoji" alt=":${escapeHtml(name)}:" src="${src}">`;
+    last = m.index + full.length;
+  }
+  out += escapeHtml(raw.slice(last));
+  return out;
 }
 
 async function fetchAllMessages(channel) {
@@ -83,7 +102,7 @@ function extOf(url = '') {
     const m = p.match(/\.([a-z0-9]+)$/i);
     return m ? m[1] : '';
   } catch {
-    const p = url.split('?')[0].toLowerCase();
+    const p = String(url).split('?')[0].toLowerCase();
     const m = p.match(/\.([a-z0-9]+)$/i);
     return m ? m[1] : '';
   }
@@ -104,23 +123,27 @@ async function buildHtmlTranscript(channel, closedById) {
     const name = escapeHtml(m.member?.displayName || m.author.username);
     const color = memberDisplayColorHex(m);
     const avatar = messageAvatarUrl(m);
-    let content = escapeHtml(m.content || '');
+    const contentHtml = renderContentWithEmojis(m.content || '');
 
     const parts = [];
-    if (content) parts.push(`<div class="content">${content}</div>`);
+    if (contentHtml) parts.push(`<div class="content">${contentHtml}</div>`);
 
-    // Adjuntos con imagen/video/audio embebidos
+    // Adjuntos con imagen/video/audio embebidos (con múltiples fallbacks)
     if (m.attachments?.size) {
       for (const a of m.attachments.values()) {
         const safeName = escapeHtml(a.name || 'archivo');
-        const ctype = (a.contentType || '').toLowerCase();
-        const ext   = extOf(a.url);
+        const ctype = String(a.contentType || '').toLowerCase();
+        const ext   = extOf(a.url) || extOf(a.proxyURL || '') || extOf(a.name || '');
 
-        if (ctype.startsWith('image/') || IMG_EXT.has(ext)) {
+        const isImg = ctype.startsWith('image/') || IMG_EXT.has(ext);
+        const isVid = ctype.startsWith('video/') || VID_EXT.has(ext);
+        const isAud = ctype.startsWith('audio/') || AUD_EXT.has(ext);
+
+        if (isImg) {
           parts.push(`<img class="att-img" src="${a.url}" alt="${safeName}">`);
-        } else if (ctype.startsWith('video/') || VID_EXT.has(ext)) {
+        } else if (isVid) {
           parts.push(`<video class="att-media" src="${a.url}" controls></video>`);
-        } else if (ctype.startsWith('audio/') || AUD_EXT.has(ext)) {
+        } else if (isAud) {
           parts.push(`<audio class="att-audio" src="${a.url}" controls></audio>`);
         } else {
           parts.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
@@ -128,8 +151,22 @@ async function buildHtmlTranscript(channel, closedById) {
       }
     }
 
+    // Embeds (por ejemplo enlaces a imágenes)
     if (m.embeds?.length) {
-      parts.push(`<div class="embed-note">(${m.embeds.length} embed${m.embeds.length>1?'s':''})</div>`);
+      for (const e of m.embeds) {
+        const img = e?.image?.url || e?.thumbnail?.url;
+        const vid = e?.video?.url;
+        if (img) {
+          parts.push(`<img class="att-img" src="${img}" alt="embed">`);
+        } else if (vid) {
+          const vext = extOf(vid);
+          if (VID_EXT.has(vext)) {
+            parts.push(`<video class="att-media" src="${vid}" controls></video>`);
+          } else {
+            parts.push(`<div class="att"><a href="${vid}" target="_blank" rel="noopener">${escapeHtml(vid)}</a></div>`);
+          }
+        }
+      }
     }
 
     return `
@@ -171,6 +208,7 @@ a{color:#9bd3ff;text-decoration:none} a:hover{text-decoration:underline}
 .disc{color:var(--muted);font-size:12px}
 .time{color:var(--muted);margin-left:auto;font-size:12px}
 .content{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
+.emoji{width:20px;height:20px;vertical-align:-4px}
 .att{margin-top:6px;font-size:13px}
 .att-img{display:block;max-width:520px;width:100%;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
 .att-media{display:block;max-width:640px;width:100%;border-radius:8px;margin-top:6px;border:1px solid var(--soft);background:#000}
