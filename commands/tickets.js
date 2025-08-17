@@ -10,7 +10,6 @@ const {
   ModalBuilder,
   ChannelType,
   PermissionFlagsBits,
-  AttachmentBuilder,
 } = require('discord.js');
 const path = require('node:path');
 const fs   = require('node:fs');
@@ -18,11 +17,15 @@ const fs   = require('node:fs');
 // ====== CONFIG ======
 const SUPPORT_CATEGORY_ID = '1399207365886345246';
 const STAFF_ROLE_ID       = '1146355437696974878';
-const LOGS_CHANNEL_ID     = '1404021560997707856';      // canal de logs
+const LOGS_CHANNEL_ID     = '1404021560997707856';            // canal de logs
 const PANEL_COLOR         = 0x4cadd0;
 const DELETE_DELAY_MS     = 4000;
 
-// Emojis animados (IDs)
+// Public host (agrega PUBLIC_BASE_URL en .env)
+const PUBLIC_BASE_URL     = (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+const TRANSCRIPT_DIR      = path.resolve(__dirname, '..', 'transcripts');
+
+// Emojis animados (IDs provistos)
 const EMOJIS = {
   reporte:   { id: '1405529661529653338', animated: true, name: 'reporte'   },
   compras:   { id: '1405529067297574912', animated: true, name: 'cococoins' },
@@ -45,10 +48,7 @@ const LABELS = {
 
 // ---------- helpers ----------
 function escapeHtml(s = '') {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 async function fetchAllMessages(channel) {
@@ -61,20 +61,15 @@ async function fetchAllMessages(channel) {
     before = batch.last().id;
     if (batch.size < 100) break;
   }
-  // viejo -> nuevo
-  all.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+  all.sort((a,b) => a.createdTimestamp - b.createdTimestamp);
   return all;
 }
 
 function memberDisplayColorHex(msg) {
-  // color del nombre (usa el displayHexColor del miembro si está en caché)
   const hex = msg.member?.displayHexColor;
-  if (hex && hex !== '#000000') return hex;
-  return '#ffffff';
+  return hex && hex !== '#000000' ? hex : '#ffffff';
 }
-
 function messageAvatarUrl(msg) {
-  // avatar estático (para HTML; el navegador lo carga)
   return msg.author.displayAvatarURL({ extension: 'png', size: 128 });
 }
 
@@ -84,48 +79,43 @@ async function buildHtmlTranscript(channel, closedById) {
   const closedISO  = new Date().toISOString();
 
   const msgs = await fetchAllMessages(channel);
-
-  const items = [];
-  for (const m of msgs) {
+  const items = msgs.map(m => {
     const when = new Date(m.createdTimestamp).toLocaleString();
     const name = escapeHtml(m.member?.displayName || m.author.username);
     const color = memberDisplayColorHex(m);
     const avatar = messageAvatarUrl(m);
     let content = escapeHtml(m.content || '');
 
+    const parts = [];
+    if (content) parts.push(`<div class="content">${content}</div>`);
+
     // Adjuntos
-    const attach = [];
     if (m.attachments?.size) {
       for (const a of m.attachments.values()) {
-        const safeName = escapeHtml(a.name || 'attachment');
-        attach.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
-        // si es imagen, mostramos preview pequeña
+        const safeName = escapeHtml(a.name || 'archivo');
+        parts.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
         if (a.contentType?.startsWith('image/')) {
-          attach.push(`<img class="att-img" src="${a.url}" alt="${safeName}">`);
+          parts.push(`<img class="att-img" src="${a.url}" alt="${safeName}">`);
         }
       }
     }
-
-    // Aviso si hay embeds
     if (m.embeds?.length) {
-      attach.push(`<div class="embed-note">(${m.embeds.length} embed${m.embeds.length > 1 ? 's' : ''})</div>`);
+      parts.push(`<div class="embed-note">(${m.embeds.length} embed${m.embeds.length>1?'s':''})</div>`);
     }
 
-    items.push(`
+    return `
       <div class="msg">
-        <img class="ava" src="${avatar}" alt="avatar">
+        <img class="ava" src="${avatar}" alt="ava">
         <div class="body">
           <div class="head">
             <span class="name" style="color:${color}">${name}</span>
             <span class="disc">#${m.author.discriminator ?? '0000'}</span>
             <span class="time">${when}</span>
           </div>
-          <div class="content">${content || '<i class="muted">(sin contenido)</i>'}</div>
-          ${attach.join('')}
+          ${parts.join('\n')}
         </div>
-      </div>
-    `);
-  }
+      </div>`;
+  });
 
   const html = `<!doctype html>
 <html lang="es">
@@ -134,39 +124,36 @@ async function buildHtmlTranscript(channel, closedById) {
 <title>Transcript ${escapeHtml(channel.name)}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
-  :root{
-    --bg:#0f1115; --panel:#151823; --soft:#1e2230; --text:#e6e9ef; --muted:#9aa4b2; --accent:#4cadd0; --danger:#fa5252;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
-  a{color:#9bd3ff;text-decoration:none}
-  a:hover{text-decoration:underline}
-  .wrap{max-width:980px;margin:28px auto;padding:0 16px}
-  .card{background:var(--panel);border:1px solid var(--soft);border-radius:14px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,.25)}
-  .card .header{padding:16px 18px;border-bottom:1px solid var(--soft);display:flex;gap:16px;align-items:center}
-  .card .header h1{margin:0;font-size:18px}
-  .meta{font-size:13px;color:var(--muted)}
-  .log{padding:10px 0}
-  .msg{display:flex;gap:12px;padding:12px 16px;border-bottom:1px dashed rgba(255,255,255,.06)}
-  .msg:last-child{border-bottom:0}
-  .ava{width:36px;height:36px;border-radius:50%}
-  .head{display:flex;gap:8px;align-items:baseline}
-  .name{font-weight:700}
-  .disc{color:var(--muted);font-size:12px}
-  .time{color:var(--muted);margin-left:auto;font-size:12px}
-  .content{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
-  .muted{color:var(--muted)}
-  .att{margin-top:6px;font-size:13px}
-  .att-img{display:block;max-width:320px;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
-  .footer{padding:14px 16px;background:var(--soft);color:var(--muted);font-size:12px}
-  .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent);color:#06202b;font-weight:700;margin-left:6px}
+:root{--bg:#0f1115;--panel:#151823;--soft:#1e2230;--text:#e6e9ef;--muted:#9aa4b2;--accent:#4cadd0;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+a{color:#9bd3ff;text-decoration:none} a:hover{text-decoration:underline}
+.wrap{max-width:980px;margin:28px auto;padding:0 16px}
+.card{background:var(--panel);border:1px solid var(--soft);border-radius:14px;overflow:hidden;box-shadow:0 6px 20px rgba(0,0,0,.25)}
+.card .header{padding:16px 18px;border-bottom:1px solid var(--soft);display:flex;gap:16px;align-items:center}
+.card .header h1{margin:0;font-size:18px}
+.meta{font-size:13px;color:var(--muted)}
+.log{padding:10px 0}
+.msg{display:flex;gap:12px;padding:12px 16px;border-bottom:1px dashed rgba(255,255,255,.06)}
+.msg:last-child{border-bottom:0}
+.ava{width:36px;height:36px;border-radius:50%}
+.head{display:flex;gap:8px;align-items:baseline}
+.name{font-weight:700}
+.disc{color:var(--muted);font-size:12px}
+.time{color:var(--muted);margin-left:auto;font-size:12px}
+.content{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
+.att{margin-top:6px;font-size:13px}
+.att-img{display:block;max-width:320px;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
+.embed-note{margin-top:6px;color:var(--muted);font-size:12px}
+.footer{padding:14px 16px;background:var(--soft);color:var(--muted);font-size:12px}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent);color:#06202b;font-weight:700;margin-left:6px}
 </style>
 </head>
 <body>
   <div class="wrap">
     <div class="card">
       <div class="header">
-        <h1>Transcript <span class="badge">HTML</span></h1>
+        <h1>Transcripción <span class="badge">HTML</span></h1>
         <div class="meta">
           Canal: #${escapeHtml(channel.name)} (${channel.id}) · Parent: ${escapeHtml(channel.parent?.name || 'none')}<br>
           Abierto por: ${openerId !== 'unknown' ? `<a href="https://discord.com/users/${openerId}">${openerId}</a>` : 'unknown'}
@@ -177,18 +164,12 @@ async function buildHtmlTranscript(channel, closedById) {
       <div class="log">
         ${items.join('\n')}
       </div>
-      <div class="footer">
-        Generado automáticamente · ${new Date().toLocaleString()}
-      </div>
+      <div class="footer">Generado automáticamente · ${new Date().toLocaleString()}</div>
     </div>
   </div>
 </body>
 </html>`;
-
-  const file = new AttachmentBuilder(Buffer.from(html, 'utf8'), {
-    name: `transcript-${channel.name}-${Date.now()}.html`,
-  });
-  return { file, openerId };
+  return { html, openerId };
 }
 
 async function closeTicket(interaction) {
@@ -204,11 +185,23 @@ async function closeTicket(interaction) {
 
   await interaction.deferReply({ ephemeral: true });
 
-  let file, openerId;
+  let publicUrl = null;
+  let openerId  = 'unknown';
+
   try {
-    ({ file, openerId } = await buildHtmlTranscript(ch, interaction.user.id));
+    const { html, openerId: op } = await buildHtmlTranscript(ch, interaction.user.id);
+    openerId = op || 'unknown';
+
+    fs.mkdirSync(TRANSCRIPT_DIR, { recursive: true });
+    const filename = `ticket-${ch.id}-${Date.now()}.html`;
+    const filepath = path.join(TRANSCRIPT_DIR, filename);
+    fs.writeFileSync(filepath, html, 'utf8');
+
+    if (PUBLIC_BASE_URL) {
+      publicUrl = `${PUBLIC_BASE_URL}/transcripts/${filename}`;
+    }
   } catch (e) {
-    console.error('transcript build error', e);
+    console.error('transcript build/write error', e);
   }
 
   // Enviar a logs
@@ -225,8 +218,13 @@ async function closeTicket(interaction) {
         ].join('\n'))
         .setTimestamp(new Date());
 
-      if (file) await logs.send({ embeds: [summary], files: [file] });
-      else      await logs.send({ embeds: [summary] });
+      const components = publicUrl
+        ? [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(publicUrl)
+          )]
+        : [];
+
+      await logs.send({ embeds: [summary], components });
     } else {
       console.warn('LOGS_CHANNEL_ID no encontrado:', LOGS_CHANNEL_ID);
     }
@@ -238,7 +236,10 @@ async function closeTicket(interaction) {
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);
 
-  return interaction.editReply('✅ Ticket cerrado y transcript HTML enviado a logs.');
+  return interaction.editReply(publicUrl
+    ? '✅ Ticket cerrado. Envié a logs el botón **Transcript** con la URL.'
+    : '✅ Ticket cerrado. (No hay PUBLIC_BASE_URL, se guardó localmente el HTML)'
+  );
 }
 
 // ============= comando/handlers =============
@@ -265,7 +266,7 @@ module.exports = {
 
     if (banner?.url) embed.setImage(banner.url);
 
-    // Thumbnail desde assets/images/logo.gif
+    // Thumbnail
     const files = [];
     const localLogoPath = path.resolve(__dirname, '..', 'assets', 'images', 'logo.gif');
     if (fs.existsSync(localLogoPath)) {
@@ -290,19 +291,13 @@ module.exports = {
 
     const payload = { embeds: [embed], components: [row1, row2] };
     if (files.length) payload.files = files;
-
     await interaction.channel.send(payload);
   },
 
   async handleButton(interaction) {
     const [, kind] = interaction.customId.split(':');
+    if (kind === 'close') return closeTicket(interaction);
 
-    // Cerrar ticket
-    if (kind === 'close') {
-      return closeTicket(interaction);
-    }
-
-    // Abrir modal
     const label = LABELS[kind] || 'Soporte';
 
     const modal = new ModalBuilder()
@@ -347,7 +342,6 @@ module.exports = {
     const modo    = interaction.fields.getTextInputValue('modo').trim();
     const detalle = interaction.fields.getTextInputValue('detalle').trim();
 
-    // Evitar duplicados por usuario
     const existing = interaction.guild.channels.cache.find(
       ch => ch.parentId === SUPPORT_CATEGORY_ID && ch.topic === interaction.user.id
     );
@@ -377,7 +371,7 @@ module.exports = {
       name,
       type: ChannelType.GuildText,
       parent: SUPPORT_CATEGORY_ID,
-      topic: interaction.user.id, // guardamos el autor aquí
+      topic: interaction.user.id,
       permissionOverwrites: overwrites,
       reason: `Ticket ${label} por ${interaction.user.tag}`,
     });
@@ -394,10 +388,7 @@ module.exports = {
       ].join('\n'));
 
     const rowClose = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId('ticket:close')
-        .setLabel('Cerrar ticket')
-        .setStyle(ButtonStyle.Danger)
+      new ButtonBuilder().setCustomId('ticket:close').setLabel('Cerrar ticket').setStyle(ButtonStyle.Danger)
     );
 
     await channel.send({
