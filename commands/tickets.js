@@ -13,18 +13,19 @@ const {
 } = require('discord.js');
 const path = require('node:path');
 const fs   = require('node:fs');
-
-// OJO: tu helper se llama "path.js" (singular)
 const { TRANSCRIPT_DIR, PUBLIC_BASE_URL } = require('../helpers/path');
 
-const LOGS_CHANNEL_ID        = '1404021560997707856';
-const SUPPORT_CATEGORY_ID    = '1399207365886345246';
-const STAFF_ROLE_ID          = '1146355437696974878';
-const PANEL_COLOR            = 0x4cadd0;
-const DELETE_DELAY_MS        = 4000;
+// ================== CONFIG ==================
+const SUPPORT_CATEGORY_ID = '1399207365886345246';
+const STAFF_ROLE_ID       = '1146355437696974878';
+const LOGS_CHANNEL_ID     = '1404021560997707856';
 
-// Si alguna vez quieres volver a adjuntar el HTML al mensaje de logs, pon true
-const ATTACH_TRANSCRIPT_FILE = false;
+const PANEL_COLOR         = 0x4cadd0;
+const DELETE_DELAY_MS     = 4000;
+
+// Si pones true, adjunta SIEMPRE el HTML (Discord mostrará preview).
+// Por defecto false: solo adjunta si NO hay PUBLIC_BASE_URL (evita el “código” arriba).
+const ATTACH_HTML_ALWAYS  = false;
 
 // Emojis animados (IDs provistos)
 const EMOJIS = {
@@ -47,33 +48,9 @@ const LABELS = {
   booster:   'Booster',
 };
 
-// ---------- helpers ----------
+// ================== HELPERS ==================
 function escapeHtml(s = '') {
-  return String(s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-}
-
-// Renderiza texto con emojis custom en <img>
-function renderContentWithEmojis(raw = '') {
-  const tokens = [];
-  let idx = 0;
-
-  // Reemplaza <a:name:id> / <:name:id> por marcadores temporales
-  const replaced = raw.replace(/<(?:(a)?):([a-zA-Z0-9_~]+):(\d+)>/g, (_, animated, name, id) => {
-    const key = `__E${idx++}__`;
-    const ext = animated ? 'gif' : 'webp';
-    const url = `https://cdn.discordapp.com/emojis/${id}.${ext}?size=48&quality=lossless`;
-    tokens.push({ key, tag: `<img class="emoji" alt=":${escapeHtml(name)}:" src="${url}">` });
-    return key;
-  });
-
-  // Escapa el resto y recoloca los <img>
-  let html = escapeHtml(replaced);
-  for (const { key, tag } of tokens) {
-    html = html.split(key).join(tag);
-  }
-  return html;
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 async function fetchAllMessages(channel) {
@@ -98,10 +75,24 @@ function messageAvatarUrl(msg) {
   return msg.author.displayAvatarURL({ extension: 'png', size: 128 });
 }
 
-function looksLikeImage(url = '') {
-  return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(url);
+// --- detectar extensión ignorando ?query de Discord ---
+function extOf(url = '') {
+  try {
+    const u = new URL(url);
+    const p = u.pathname.toLowerCase();
+    const m = p.match(/\.([a-z0-9]+)$/i);
+    return m ? m[1] : '';
+  } catch {
+    const p = url.split('?')[0].toLowerCase();
+    const m = p.match(/\.([a-z0-9]+)$/i);
+    return m ? m[1] : '';
+  }
 }
+const IMG_EXT = new Set(['png','jpg','jpeg','gif','webp','bmp','avif']);
+const VID_EXT = new Set(['mp4','webm','mov','m4v','mkv']);
+const AUD_EXT = new Set(['mp3','ogg','wav','flac','m4a','aac']);
 
+// ================== TRANSCRIPT ==================
 async function buildHtmlTranscript(channel, closedById) {
   const openerId = channel.topic || 'unknown';
   const createdISO = new Date(channel.createdTimestamp).toISOString();
@@ -109,28 +100,27 @@ async function buildHtmlTranscript(channel, closedById) {
 
   const msgs = await fetchAllMessages(channel);
   const items = msgs.map(m => {
-    const when   = new Date(m.createdTimestamp).toLocaleString();
-    const name   = escapeHtml(m.member?.displayName || m.author.username);
-    const color  = memberDisplayColorHex(m);
+    const when = new Date(m.createdTimestamp).toLocaleString();
+    const name = escapeHtml(m.member?.displayName || m.author.username);
+    const color = memberDisplayColorHex(m);
     const avatar = messageAvatarUrl(m);
-
-    // Texto + emojis
-    const contentHtml = m.content ? renderContentWithEmojis(m.content) : '';
+    let content = escapeHtml(m.content || '');
 
     const parts = [];
-    if (contentHtml) parts.push(`<div class="content">${contentHtml}</div>`);
+    if (content) parts.push(`<div class="content">${content}</div>`);
 
-    // Adjuntos: imagen / video / audio / link
+    // Adjuntos con imagen/video/audio embebidos
     if (m.attachments?.size) {
       for (const a of m.attachments.values()) {
         const safeName = escapeHtml(a.name || 'archivo');
-        const ctype = a.contentType || '';
+        const ctype = (a.contentType || '').toLowerCase();
+        const ext   = extOf(a.url);
 
-        if (ctype.startsWith('image/') || (!ctype && looksLikeImage(a.url))) {
+        if (ctype.startsWith('image/') || IMG_EXT.has(ext)) {
           parts.push(`<img class="att-img" src="${a.url}" alt="${safeName}">`);
-        } else if (ctype.startsWith('video/')) {
+        } else if (ctype.startsWith('video/') || VID_EXT.has(ext)) {
           parts.push(`<video class="att-media" src="${a.url}" controls></video>`);
-        } else if (ctype.startsWith('audio/')) {
+        } else if (ctype.startsWith('audio/') || AUD_EXT.has(ext)) {
           parts.push(`<audio class="att-audio" src="${a.url}" controls></audio>`);
         } else {
           parts.push(`<div class="att"><a href="${a.url}" target="_blank" rel="noopener">${safeName}</a></div>`);
@@ -148,7 +138,7 @@ async function buildHtmlTranscript(channel, closedById) {
         <div class="body">
           <div class="head">
             <span class="name" style="color:${color}">${name}</span>
-            <span class="disc">#${escapeHtml(m.author.discriminator ?? '0000')}</span>
+            <span class="disc">#${m.author.discriminator ?? '0000'}</span>
             <span class="time">${when}</span>
           </div>
           ${parts.join('\n')}
@@ -181,11 +171,10 @@ a{color:#9bd3ff;text-decoration:none} a:hover{text-decoration:underline}
 .disc{color:var(--muted);font-size:12px}
 .time{color:var(--muted);margin-left:auto;font-size:12px}
 .content{white-space:pre-wrap;word-wrap:break-word;margin-top:2px}
-.emoji{width:22px;height:22px;vertical-align:-4px}
 .att{margin-top:6px;font-size:13px}
-.att-img{display:block;max-width:420px;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
-.att-media{display:block;max-width:520px;border-radius:8px;margin-top:6px;border:1px solid var(--soft);background:#000}
-.att-audio{display:block;margin-top:6px;width:320px}
+.att-img{display:block;max-width:520px;width:100%;border-radius:8px;margin-top:6px;border:1px solid var(--soft)}
+.att-media{display:block;max-width:640px;width:100%;border-radius:8px;margin-top:6px;border:1px solid var(--soft);background:#000}
+.att-audio{display:block;width:100%;margin-top:6px}
 .embed-note{margin-top:6px;color:var(--muted);font-size:12px}
 .footer{padding:14px 16px;background:var(--soft);color:var(--muted);font-size:12px}
 .badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--accent);color:#06202b;font-weight:700;margin-left:6px}
@@ -214,6 +203,7 @@ a{color:#9bd3ff;text-decoration:none} a:hover{text-decoration:underline}
   return { html, openerId };
 }
 
+// ================== CLOSE TICKET ==================
 async function closeTicket(interaction) {
   const ch = interaction.channel;
   if (!ch || ch.type !== ChannelType.GuildText || ch.parentId !== SUPPORT_CATEGORY_ID) {
@@ -247,7 +237,7 @@ async function closeTicket(interaction) {
     console.error('transcript build/write error', e);
   }
 
-  // Enviar a logs (solo botón + embed; sin adjuntar el HTML para evitar la “chorrera de código”)
+  // Enviar a logs
   try {
     const logs = interaction.guild.channels.cache.get(LOGS_CHANNEL_ID);
     if (logs) {
@@ -261,34 +251,17 @@ async function closeTicket(interaction) {
         ].join('\n'))
         .setTimestamp(new Date());
 
-      const components = [];
-      if (publicUrl) {
-        components.push(new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(publicUrl)
-        ));
-      } else if (ATTACH_TRANSCRIPT_FILE && filepath) {
-        // Fallback: adjunta el HTML y luego crea botón a la URL del adjunto
-        const msg = await logs.send({ embeds: [summary], files: [{ attachment: filepath, name: filename }] });
-        const attach = msg.attachments.first();
-        if (attach?.url) {
-          const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(attach.url)
-          );
-          await msg.edit({ components: [row] });
-        }
-      } else {
-        await logs.send({ embeds: [summary] });
-      }
-
-      // Si había URL pública, envía el embed con botón en un solo paso:
-      if (publicUrl) {
-        await logs.send({
-          embeds: [summary],
-          components: [new ActionRowBuilder().addComponents(
+      const components = publicUrl
+        ? [new ActionRowBuilder().addComponents(
             new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Transcript ↗').setURL(publicUrl)
           )]
-        });
-      }
+        : [];
+
+      const files = (!publicUrl || ATTACH_HTML_ALWAYS) && filepath
+        ? [{ attachment: filepath, name: filename }]
+        : [];
+
+      await logs.send({ embeds: [summary], components, files });
     } else {
       console.warn('LOGS_CHANNEL_ID no encontrado:', LOGS_CHANNEL_ID);
     }
@@ -296,18 +269,17 @@ async function closeTicket(interaction) {
     console.error('logs send error', e);
   }
 
+  // Aviso y borrado del canal
   try { await ch.send({ content: '🔒 Este ticket se cerrará en unos segundos…' }); } catch {}
   setTimeout(() => ch.delete('Ticket cerrado'), DELETE_DELAY_MS);
 
   return interaction.editReply(publicUrl
     ? '✅ Ticket cerrado. Envié a logs el botón **Transcript** con la URL.'
-    : ATTACH_TRANSCRIPT_FILE
-      ? '✅ Ticket cerrado. Envié a logs el HTML como adjunto (sin URL pública).'
-      : '✅ Ticket cerrado. (Sin URL pública y sin adjunto en logs)'
+    : '✅ Ticket cerrado. (No hay PUBLIC_BASE_URL, se adjuntó el HTML en logs)'
   );
 }
 
-// ============= comando/handlers =============
+// ================== SLASH / HANDLERS ==================
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ticket_panel')
@@ -331,6 +303,7 @@ module.exports = {
 
     if (banner?.url) embed.setImage(banner.url);
 
+    // Thumbnail
     const files = [];
     const localLogoPath = path.resolve(__dirname, '..', 'assets', 'images', 'logo.gif');
     if (fs.existsSync(localLogoPath)) {
@@ -448,7 +421,7 @@ module.exports = {
         `**Modalidad:** ${modo}`,
         '',
         '**Detalle:**',
-        escapeHtml(detalle),
+        detalle,
       ].join('\n'));
 
     const rowClose = new ActionRowBuilder().addComponents(
