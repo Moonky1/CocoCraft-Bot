@@ -197,13 +197,18 @@ async function updateChannelNames() {
 // Asegúrate de crear el client con GuildMembers intent donde inicializas tu bot:
 // const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
 
+
+// Asegúrate de crear el client con GuildMembers intent en tu inicialización:
+// const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
+
 // ===== CONFIG =====
 const CFG = {
   COLOR: '#4cadd0',
-  WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID,
-  RULES_CHANNEL_ID: process.env.RULES_CHANNEL_ID,
-  ROLES_CHANNEL_ID: process.env.ROLES_CHANNEL_ID,
-  ROLE_BOT_ID: process.env.ROLE_BOT_ID || null,
+  // Fallback al ID que me pasaste si no está en .env
+  WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '1399202129377234954',
+  RULES_CHANNEL_ID: process.env.RULES_CHANNEL_ID || '',
+  ROLES_CHANNEL_ID: process.env.ROLES_CHANNEL_ID || '',
+  ROLE_BOT_ID: process.env.ROLE_BOT_ID || '',
   ROLE_MEMBER_ID: process.env.ROLE_MEMBER_ID || '1404003165313040534',
   ROLE_UNVERIFIED_ID: process.env.ROLE_UNVERIFIED_ID || '1406124792070934639',
   ROLE_VERIFIED_ID: process.env.ROLE_VERIFIED_ID || '1406241979217612931',
@@ -219,11 +224,9 @@ async function drawWelcome(member) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext('2d');
 
-  // Fondo
   const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
   ctx.drawImage(bg, 0, 0, W, H);
 
-  // Avatar
   const centerX = W / 2, centerY = 260, avatarR = 150;
   const avatarURL = member.user.displayAvatarURL({ extension: 'png', forceStatic: true, size: 512 });
   const avatarImg = await loadImage(avatarURL);
@@ -232,7 +235,6 @@ async function drawWelcome(member) {
   ctx.drawImage(avatarImg, centerX - avatarR, centerY - avatarR, avatarR * 2, avatarR * 2);
   ctx.restore();
 
-  // Nombre
   const name = member.displayName || member.user.username;
   ctx.font = 'bold 96px DMSansBold, sans-serif';
   ctx.textAlign = 'center';
@@ -246,9 +248,10 @@ async function drawWelcome(member) {
   return canvas.toBuffer('image/png');
 }
 
-// ===== Anti duplicados en memoria =====
+// ===== Anti-duplicados =====
 const recentWelcomes = new Map(); // memberId -> expiresAt
 const WELCOME_TTL_MS = 20_000;
+
 const wasWelcomedRecently = (id) => {
   const t = recentWelcomes.get(id);
   if (!t) return false;
@@ -261,12 +264,11 @@ async function alreadyInChannel(channel, member, windowSec = 90) {
   const now = Date.now();
   const msgs = await channel.messages.fetch({ limit: 30 }).catch(() => null);
   if (!msgs) return false;
-  const hit = [...msgs.values()].find(m =>
+  return [...msgs.values()].some(m =>
     m.author.id === channel.client.user.id &&
     (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
     (now - m.createdTimestamp) <= windowSec * 1000
   );
-  return Boolean(hit);
 }
 const isV2Welcome = (m, memberId) => {
   const hasText = m.content?.includes('¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
@@ -295,37 +297,30 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
   }
 }
 
-// ===== Listener =====
+// ===== Listener (sin ChannelType) =====
 client.removeAllListeners(Events.GuildMemberAdd); // evita dobles si recargas
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
-    // No intentes poner roles al dueño (Discord no lo permite)
-    if (member.id === member.guild.ownerId) {
-      console.log('ℹ️ Owner joined; no role changes.');
-      return;
-    }
+    // No tocar roles del owner (Discord lo impide)
+    if (member.id === member.guild.ownerId) return;
 
-    // Buscar canal de bienvenida (fetch > cache)
+    // Buscar canal (fetch primero, luego cache)
     let channel = null;
-    try {
-      channel = await member.client.channels.fetch(CFG.WELCOME_CHANNEL_ID);
-    } catch {}
+    try { channel = await member.client.channels.fetch(CFG.WELCOME_CHANNEL_ID); } catch {}
     if (!channel) channel = member.guild.channels.cache.get(CFG.WELCOME_CHANNEL_ID);
 
-    if (!channel || channel.type !== ChannelType.GuildText) {
+    // ✅ Validación sin ChannelType
+    if (!channel || !channel.isTextBased()) {
       console.error('❌ Welcome channel not found or not a text channel');
       return;
     }
 
     // --- Roles al entrar ---
-    const isBot = member.user.bot;
-
-    if (isBot) {
-      if (CFG.ROLE_BOT_ID && !member.roles.cache.has(CFG.ROLE_BOT_ID)) {
+    if (member.user.bot) {
+      if (CFG.ROLE_BOT_ID) {
         await member.roles.add(CFG.ROLE_BOT_ID, 'Assign Bot role on join').catch(console.error);
       }
-      // Opcional: no enviar bienvenida a bots
-      return;
+      return; // no saludamos bots
     }
 
     const hasVerified   = member.roles.cache.has(CFG.ROLE_VERIFIED_ID);
@@ -342,14 +337,13 @@ client.on(Events.GuildMemberAdd, async (member) => {
       if (toAdd.length)   await member.roles.add(toAdd, 'Baseline roles on join').catch(console.error);
     }
 
-    // --- Anti duplicado entre múltiples instancias ---
+    // --- Anti duplicado entre instancias ---
     if (wasWelcomedRecently(member.id)) return;
     if (await alreadyInChannel(channel, member, 90)) { markWelcomed(member.id); return; }
 
-    // Limpia mensajes pasados
     await cleanWelcomeDuplicates(channel, member, 600);
 
-    // --- Mensaje con imagen ---
+    // --- Mensaje con imagen + embed ---
     let file = null;
     try {
       const buffer = await drawWelcome(member);
@@ -358,11 +352,14 @@ client.on(Events.GuildMemberAdd, async (member) => {
       console.warn('⚠️ Canvas falló, envío solo embed:', err.message);
     }
 
+    const rulesMention = CFG.RULES_CHANNEL_ID ? `<#${CFG.RULES_CHANNEL_ID}>` : '#reglas';
+    const rolesMention = CFG.ROLES_CHANNEL_ID ? `<#${CFG.ROLES_CHANNEL_ID}>` : '#roles';
+
     const embed = new EmbedBuilder()
       .setColor(CFG.COLOR)
       .setDescription([
         `¡Bienvenido <@${member.id}> a **${member.guild.name}**!`,
-        `Lee las 📜 <#${CFG.RULES_CHANNEL_ID}> y visita 🌈 <#${CFG.ROLES_CHANNEL_ID}>.`,
+        `Lee las 📜 ${rulesMention} y visita 🌈 ${rolesMention}.`,
       ].join('\n'))
       .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
       .setTimestamp();
@@ -376,6 +373,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
     console.error('❌ welcome error:', e);
   }
 });
+
 
 // ───────────────────────────────────────────────────────────────────────────────
 // READY
