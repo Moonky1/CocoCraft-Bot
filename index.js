@@ -321,7 +321,7 @@ client.on('guildMemberAdd', async (member) => {
     const file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
 
     const content =
-      `🍪 ¡Bienvenido <@${member.id}> a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
+      `¡Bienvenido <@${member.id}> a **${member.guild.name}**! Lee las 📜 <#${process.env.RULES_CHANNEL_ID}> y visita 🌈 <#${process.env.ROLES_CHANNEL_ID}>`;
 
     await canal.send({ content, files: [file] });
 
