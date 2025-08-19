@@ -194,7 +194,6 @@ async function updateChannelNames() {
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas  (fuente + fondo + avatar)
 // ===== IMPORTS =====
-const path = require('path');
 const { createCanvas, loadImage, registerFont } = require('canvas'); // o '@napi-rs/canvas'
 const {
   AttachmentBuilder,
