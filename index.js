@@ -208,28 +208,14 @@ async function drawWelcome(member) {
   const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
   ctx.drawImage(bg, 0, 0, W, H);
 
-  // Avatar: más grande y más centrado
+  // Avatar SIN borde y más grande
   const centerX = W / 2;
-  const centerY = 260;            // un poco más al centro vertical
-  const avatarR   = 120;          // ↑ tamaño del avatar
-  const ringInner = avatarR + 14; // anillo interior
-  const ringOuter = ringInner + 16; // anillo exterior
+  const centerY = 260;
+  const avatarR = 150; // ↑ antes 120
 
-  // Anillo exterior
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, ringOuter, 0, Math.PI * 2);
-  ctx.fillStyle = '#F58BC7';
-  ctx.fill();
-
-  // Anillo interior
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, ringInner, 0, Math.PI * 2);
-  ctx.fillStyle = '#FFB6E6';
-  ctx.fill();
-
-  // Avatar recortado
   const avatarURL = member.user.displayAvatarURL({ extension: 'png', forceStatic: true, size: 512 });
   const avatarImg = await loadImage(avatarURL);
+
   ctx.save();
   ctx.beginPath();
   ctx.arc(centerX, centerY, avatarR, 0, Math.PI * 2);
@@ -246,7 +232,7 @@ async function drawWelcome(member) {
   ctx.fillStyle = '#FFFFFF';
   ctx.shadowColor = 'rgba(0,0,0,0.55)';
   ctx.shadowBlur = 22;
-  ctx.fillText(name, W / 2, 520); // solo el nombre
+  ctx.fillText(name, W / 2, 520);
 
   ctx.shadowBlur = 0;
   return canvas.toBuffer('image/png');
@@ -283,7 +269,7 @@ async function alreadyInChannel(channel, member, windowSec = 90) {
 
 // Marca si el mensaje es de nuestro "formato nuevo": texto + imagen 'bienvenida.png'
 function isV2Welcome(m, memberId) {
-  const hasText = m.content?.includes('🍪 ¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
+  const hasText = m.content?.includes('<:coco:1403619212693602424>  ¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
   const hasImage = m.attachments.size > 0 && [...m.attachments.values()].some(a => a.name?.toLowerCase() === 'bienvenida.png');
   return hasText && hasImage;
 }
