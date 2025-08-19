@@ -269,7 +269,7 @@ async function alreadyInChannel(channel, member, windowSec = 90) {
 
 // Marca si el mensaje es de nuestro "formato nuevo": texto + imagen 'bienvenida.png'
 function isV2Welcome(m, memberId) {
-  const hasText = m.content?.includes('<:coco:1403619212693602424>  ¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
+  const hasText = m.content?.includes('¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
   const hasImage = m.attachments.size > 0 && [...m.attachments.values()].some(a => a.name?.toLowerCase() === 'bienvenida.png');
   return hasText && hasImage;
 }
