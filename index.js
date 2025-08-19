@@ -191,34 +191,31 @@ async function updateChannelNames() {
   }
 }
 
+
 // ───────────────────────────────────────────────────────────────────────────────
-// Bienvenida con Canvas  (fuente + fondo + avatar)
-// ===== IMPORTS =====
-// Asegúrate de crear el client con GuildMembers intent donde inicializas tu bot:
-// const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
+// Bienvenida con Canvas (config + funciones + listener)
 
-
-// Asegúrate de crear el client con GuildMembers intent en tu inicialización:
-// const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
-
-// ===== CONFIG =====
-const CFG = {
-  COLOR: '#4cadd0',
-  // Fallback al ID que me pasaste si no está en .env
-  WELCOME_CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '1399202129377234954',
+// IDs/colores (lee de .env; con fallback donde aplica)
+const WELCOME = {
+  CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '1399202129377234954',
   RULES_CHANNEL_ID: process.env.RULES_CHANNEL_ID || '',
   ROLES_CHANNEL_ID: process.env.ROLES_CHANNEL_ID || '',
   ROLE_BOT_ID: process.env.ROLE_BOT_ID || '',
   ROLE_MEMBER_ID: process.env.ROLE_MEMBER_ID || '1404003165313040534',
   ROLE_UNVERIFIED_ID: process.env.ROLE_UNVERIFIED_ID || '1406124792070934639',
   ROLE_VERIFIED_ID: process.env.ROLE_VERIFIED_ID || '1406241979217612931',
+  COLOR: '#4cadd0',
 };
 
-// ===== CANVAS: imagen de bienvenida =====
-const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
-try { registerFont(FONT_PATH, { family: 'DMSansBold' }); }
-catch (e) { console.warn('⚠️ No pude registrar la fuente:', e.message); }
+// Fuente para canvas
+try {
+  const FONT_PATH = path.join(__dirname, 'assets', 'fonts', 'DMSans-Bold.ttf');
+  registerFont(FONT_PATH, { family: 'DMSansBold' });
+} catch (e) {
+  console.warn('⚠️ No pude registrar la fuente:', e.message);
+}
 
+// Imagen
 async function drawWelcome(member) {
   const W = 1280, H = 720;
   const canvas = createCanvas(W, H);
@@ -227,31 +224,25 @@ async function drawWelcome(member) {
   const bg = await loadImage(path.join(__dirname, 'assets', 'images', 'welcome-bg.png'));
   ctx.drawImage(bg, 0, 0, W, H);
 
-  const centerX = W / 2, centerY = 260, avatarR = 150;
+  const cx = W / 2, cy = 260, r = 150;
   const avatarURL = member.user.displayAvatarURL({ extension: 'png', forceStatic: true, size: 512 });
-  const avatarImg = await loadImage(avatarURL);
-  ctx.save();
-  ctx.beginPath(); ctx.arc(centerX, centerY, avatarR, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
-  ctx.drawImage(avatarImg, centerX - avatarR, centerY - avatarR, avatarR * 2, avatarR * 2);
-  ctx.restore();
+  const avatar = await loadImage(avatarURL);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+  ctx.drawImage(avatar, cx - r, cy - r, r * 2, r * 2); ctx.restore();
 
   const name = member.displayName || member.user.username;
   ctx.font = 'bold 96px DMSansBold, sans-serif';
   ctx.textAlign = 'center';
-  ctx.lineJoin = 'round';
-  ctx.fillStyle = '#FFFFFF';
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = 22;
-  ctx.fillText(name, W / 2, 520);
-  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = 'rgba(0,0,0,.55)'; ctx.shadowBlur = 22;
+  ctx.fillText(name, W / 2, 520); ctx.shadowBlur = 0;
 
   return canvas.toBuffer('image/png');
 }
 
-// ===== Anti-duplicados =====
-const recentWelcomes = new Map(); // memberId -> expiresAt
+// Anti-duplicados en memoria
+const recentWelcomes = new Map(); // id -> expiresAt
 const WELCOME_TTL_MS = 20_000;
-
 const wasWelcomedRecently = (id) => {
   const t = recentWelcomes.get(id);
   if (!t) return false;
@@ -260,22 +251,21 @@ const wasWelcomedRecently = (id) => {
 };
 const markWelcomed = (id) => recentWelcomes.set(id, Date.now() + WELCOME_TTL_MS);
 
-async function alreadyInChannel(channel, member, windowSec = 90) {
+async function alreadyInChannel(channel, member, secs = 90) {
   const now = Date.now();
   const msgs = await channel.messages.fetch({ limit: 30 }).catch(() => null);
   if (!msgs) return false;
   return [...msgs.values()].some(m =>
     m.author.id === channel.client.user.id &&
     (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
-    (now - m.createdTimestamp) <= windowSec * 1000
+    (now - m.createdTimestamp) <= secs * 1000
   );
 }
-const isV2Welcome = (m, memberId) => {
-  const hasText = m.content?.includes('¡Bienvenido') && m.content?.includes(`<@${memberId}>`);
-  const hasImage = m.attachments.size > 0 && [...m.attachments.values()].some(a => a.name?.toLowerCase() === 'bienvenida.png');
-  return hasText && hasImage;
-};
-async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
+const isV2Welcome = (m, id) =>
+  m.content?.includes('¡Bienvenido') && m.content?.includes(`<@${id}>`) &&
+  m.attachments.size > 0 && [...m.attachments.values()].some(a => a.name?.toLowerCase() === 'bienvenida.png');
+
+async function cleanWelcomeDuplicates(channel, member, secs = 600) {
   const now = Date.now();
   const msgs = await channel.messages.fetch({ limit: 50 }).catch(() => null);
   if (!msgs) return;
@@ -283,7 +273,7 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
   const mine = [...msgs.values()].filter(m =>
     m.author.id === channel.client.user.id &&
     (m.content?.includes(`<@${member.id}>`) || m.attachments.size > 0) &&
-    (now - m.createdTimestamp) <= windowSec * 1000
+    (now - m.createdTimestamp) <= secs * 1000
   );
   if (mine.length <= 1) return;
 
@@ -297,75 +287,65 @@ async function cleanWelcomeDuplicates(channel, member, windowSec = 600) {
   }
 }
 
-// ===== Listener (sin ChannelType) =====
-client.removeAllListeners(Events.GuildMemberAdd); // evita dobles si recargas
+// Listener (sin ChannelType)
+client.removeAllListeners(Events.GuildMemberAdd);
 client.on(Events.GuildMemberAdd, async (member) => {
   try {
-    // No tocar roles del owner (Discord lo impide)
-    if (member.id === member.guild.ownerId) return;
+    if (member.id === member.guild.ownerId) return; // no tocar owner
 
-    // Buscar canal (fetch primero, luego cache)
+    // Buscar canal (fetch y cache)
     let channel = null;
-    try { channel = await member.client.channels.fetch(CFG.WELCOME_CHANNEL_ID); } catch {}
-    if (!channel) channel = member.guild.channels.cache.get(CFG.WELCOME_CHANNEL_ID);
-
-    // ✅ Validación sin ChannelType
+    try { channel = await client.channels.fetch(WELCOME.CHANNEL_ID); } catch {}
+    if (!channel) channel = member.guild.channels.cache.get(WELCOME.CHANNEL_ID);
     if (!channel || !channel.isTextBased()) {
-      console.error('❌ Welcome channel not found or not a text channel');
+      console.error('❌ Welcome channel not found / not text:', WELCOME.CHANNEL_ID);
       return;
     }
 
-    // --- Roles al entrar ---
+    // Roles
     if (member.user.bot) {
-      if (CFG.ROLE_BOT_ID) {
-        await member.roles.add(CFG.ROLE_BOT_ID, 'Assign Bot role on join').catch(console.error);
+      if (WELCOME.ROLE_BOT_ID) {
+        await member.roles.add(WELCOME.ROLE_BOT_ID, 'Assign Bot role on join').catch(console.error);
       }
       return; // no saludamos bots
     }
-
-    const hasVerified   = member.roles.cache.has(CFG.ROLE_VERIFIED_ID);
-    const hasMember     = member.roles.cache.has(CFG.ROLE_MEMBER_ID);
-    const hasUnverified = member.roles.cache.has(CFG.ROLE_UNVERIFIED_ID);
+    const hasVerified   = member.roles.cache.has(WELCOME.ROLE_VERIFIED_ID);
+    const hasMember     = member.roles.cache.has(WELCOME.ROLE_MEMBER_ID);
+    const hasUnverified = member.roles.cache.has(WELCOME.ROLE_UNVERIFIED_ID);
 
     if (hasVerified) {
-      if (hasUnverified) await member.roles.remove(CFG.ROLE_UNVERIFIED_ID, 'Verified member rejoined').catch(() => {});
-      if (!hasMember)    await member.roles.add(CFG.ROLE_MEMBER_ID, 'Baseline Member on join').catch(() => {});
+      if (hasUnverified) await member.roles.remove(WELCOME.ROLE_UNVERIFIED_ID).catch(() => {});
+      if (!hasMember)    await member.roles.add(WELCOME.ROLE_MEMBER_ID).catch(() => {});
     } else {
       const toAdd = [];
-      if (!hasMember)     toAdd.push(CFG.ROLE_MEMBER_ID);
-      if (!hasUnverified) toAdd.push(CFG.ROLE_UNVERIFIED_ID);
+      if (!hasMember)     toAdd.push(WELCOME.ROLE_MEMBER_ID);
+      if (!hasUnverified) toAdd.push(WELCOME.ROLE_UNVERIFIED_ID);
       if (toAdd.length)   await member.roles.add(toAdd, 'Baseline roles on join').catch(console.error);
     }
 
-    // --- Anti duplicado entre instancias ---
+    // Anti-doble bienvenida entre instancias
     if (wasWelcomedRecently(member.id)) return;
     if (await alreadyInChannel(channel, member, 90)) { markWelcomed(member.id); return; }
 
     await cleanWelcomeDuplicates(channel, member, 600);
 
-    // --- Mensaje con imagen + embed ---
+    // Mensaje (con fallback si Canvas falla)
     let file = null;
     try {
-      const buffer = await drawWelcome(member);
-      file = new AttachmentBuilder(buffer, { name: 'bienvenida.png' });
+      const buf = await drawWelcome(member);
+      file = new AttachmentBuilder(buf, { name: 'bienvenida.png' });
     } catch (err) {
-      console.warn('⚠️ Canvas falló, envío solo embed:', err.message);
+      console.warn('⚠️ Canvas falló, se envía sin imagen:', err.message);
     }
 
-    const rulesMention = CFG.RULES_CHANNEL_ID ? `<#${CFG.RULES_CHANNEL_ID}>` : '#reglas';
-    const rolesMention = CFG.ROLES_CHANNEL_ID ? `<#${CFG.ROLES_CHANNEL_ID}>` : '#roles';
+    const rulesMention = WELCOME.RULES_CHANNEL_ID ? `<#${WELCOME.RULES_CHANNEL_ID}>` : '#reglas';
+    const rolesMention = WELCOME.ROLES_CHANNEL_ID ? `<#${WELCOME.ROLES_CHANNEL_ID}>` : '#roles';
 
-    const embed = new EmbedBuilder()
-      .setColor(CFG.COLOR)
-      .setDescription([
-        `¡Bienvenido <@${member.id}> a **${member.guild.name}**!`,
-        `Lee las 📜 ${rulesMention} y visita 🌈 ${rolesMention}.`,
-      ].join('\n'))
-      .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
-      .setTimestamp();
+    const content = [
+      `¡Bienvenido <@${member.id}> a **${member.guild.name}**! Lee las 📜 ${rulesMention} y visita 🌈 ${rolesMention}.`,
+    ].join('\n');
 
-    await channel.send({ embeds: [embed], files: file ? [file] : [] }).catch(console.error);
-
+    await channel.send({ content, files: file ? [file] : [] });
     markWelcomed(member.id);
     setTimeout(() => cleanWelcomeDuplicates(channel, member, 600).catch(() => {}), 3500);
 
