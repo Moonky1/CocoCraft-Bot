@@ -309,6 +309,46 @@ client.on('guildMemberAdd', async (member) => {
     const canal = member.guild.channels.cache.get(process.env.WELCOME_CHANNEL_ID);
     if (!canal) return console.error('❌ Welcome channel not found');
 
+    // ───────────────────────────────────────────────────────────────
+// ROLES AL ENTRAR (con soporte para bots)
+const ROLE_BOT        = '1145358895414517800'; // Bot
+const ROLE_MEMBER     = '1404003165313040534'; // Member
+const ROLE_UNVERIFIED = '1406124792070934639'; // Unverified
+const ROLE_VERIFIED   = '1406241979217612931'; // Verified (ya lo usabas antes)
+
+if (member.user.bot) {
+  // 👉 Es un BOT: asigna rol Bot y quita roles de humanos si los tiene
+  const ops = [];
+  if (!member.roles.cache.has(ROLE_BOT)) {
+    ops.push(member.roles.add(ROLE_BOT, 'Assign Bot role on join'));
+  }
+  const toRemove = [ROLE_MEMBER, ROLE_UNVERIFIED].filter(r => member.roles.cache.has(r));
+  if (toRemove.length) {
+    ops.push(member.roles.remove(toRemove, 'Bots should not have Member/Unverified'));
+  }
+  await Promise.allSettled(ops);
+
+  // Opcional: no enviar mensaje de bienvenida a bots
+  return;
+}
+
+// 👉 Es una persona: lógica normal (Member + Unverified si no es Verified)
+const hasVerified   = member.roles.cache.has(ROLE_VERIFIED);
+const hasMember     = member.roles.cache.has(ROLE_MEMBER);
+const hasUnverified = member.roles.cache.has(ROLE_UNVERIFIED);
+
+if (hasVerified) {
+  if (hasUnverified) await member.roles.remove(ROLE_UNVERIFIED, 'Verified member rejoined');
+  if (!hasMember)    await member.roles.add(ROLE_MEMBER, 'Baseline Member on join');
+} else {
+  const toAdd = [];
+  if (!hasMember)     toAdd.push(ROLE_MEMBER);
+  if (!hasUnverified) toAdd.push(ROLE_UNVERIFIED);
+  if (toAdd.length)   await member.roles.add(toAdd, 'Baseline roles on join');
+}
+// ───────────────────────────────────────────────────────────────
+
+
     // Si otra instancia lo acaba de saludar, no dupliques
     if (wasWelcomedRecently(member.id)) return;
     if (await alreadyInChannel(canal, member, 90)) { markWelcomed(member.id); return; }
