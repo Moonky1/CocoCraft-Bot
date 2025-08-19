@@ -307,7 +307,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
       if (WELCOME.ROLE_BOT_ID) {
         await member.roles.add(WELCOME.ROLE_BOT_ID, 'Assign Bot role on join').catch(console.error);
       }
-      return; // no saludamos bots
+      // ❗️Ya NO retornamos aquí: también enviamos mensaje (útil si pruebas con un bot)
     }
     const hasVerified   = member.roles.cache.has(WELCOME.ROLE_VERIFIED_ID);
     const hasMember     = member.roles.cache.has(WELCOME.ROLE_MEMBER_ID);
