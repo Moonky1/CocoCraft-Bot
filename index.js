@@ -384,6 +384,7 @@ client.once('ready', async () => {
         require('./commands/test-boost').data.toJSON(),
         require('./commands/coco').data.toJSON(),
         require('./commands/user').data.toJSON(),
+        require('./commands/playtimetop').data.toJSON(),
         // require('./commands/otro').data.toJSON(),
       ];
 
