@@ -194,15 +194,6 @@ async function updateChannelNames() {
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas  (fuente + fondo + avatar)
 // ===== IMPORTS =====
-const { createCanvas, loadImage, registerFont } = require('canvas'); // o '@napi-rs/canvas'
-const {
-  AttachmentBuilder,
-  EmbedBuilder,
-  Events,
-  ChannelType,
-  GatewayIntentBits,
-} = require('discord.js');
-
 // Asegúrate de crear el client con GuildMembers intent donde inicializas tu bot:
 // const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages] });
 
