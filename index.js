@@ -140,8 +140,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 });
 
+
 // ───────────────────────────────────────────────────────────────────────────────
-// Estado (vía RCON/Status) → renombra canales
+// Estado (vía RCON + ping Java) → renombra canales (robusto)
 async function updateChannelNames() {
   const guild = client.guilds.cache.get(process.env.GUILD_ID);
   if (!guild) return console.error('❌ Guild not found');
@@ -151,37 +152,74 @@ async function updateChannelNames() {
   const serverChan = guild.channels.cache.get(process.env.CHANNEL_SERVER_ID);
   if (!statusChan || !serverChan) return console.error('❌ One or both channels not found');
 
-  // Default: rojo (apagado)
-  let statusEmoji = '🔴';
-  let mcCount = 0;
+  // Config/env con defaults seguros
+  const HOST        = process.env.MC_HOST;
+  const JAVA_PORT   = parseInt(process.env.MC_PORT || '25565', 10);
+  const RCON_PORT   = parseInt(process.env.RCON_PORT || '25575', 10);
+  const RCON_PASS   = process.env.RCON_PASSWORD || '';
+  const TIMEOUT_MS  = parseInt(process.env.MC_TIMEOUT || '2000', 10);
+  const DEBUG       = (process.env.SERVER_DEBUG || '0') === '1';
 
-  // 1) Intento RCON para saber si está encendido y si hay whitelist, etc.
-  try {
-    const rcon = await Rcon.connect({
-      host: process.env.MC_HOST,
-      port: parseInt(process.env.RCON_PORT, 10),
-      password: process.env.RCON_PASSWORD,
-      timeout: 1500
-    });
-    // si conectó RCON, el server está up
-    statusEmoji = '🟢';
+  // Helpers
+  const parsePlayersFromList = (text) => {
+    if (!text) return null;
+
+    // Ejemplos que cubrimos:
+    // "There are 3 of a max of 200 players online:" (inglés)
+    // "Hay 3 de un máximo de 200 jugadores conectados:" (español)
+    // Formatos abreviados o plugins: "3 players online", "Online: 3/200", etc.
+
+    let m =
+      text.match(/(?:There are|Hay)\s+(\d+)\s+(?:of|de)\s+/i) ||
+      text.match(/(\d+)\s+players?\s+online/i) ||
+      text.match(/online:\s*(\d+)\s*\/\s*\d+/i);
+
+    return m ? parseInt(m[1], 10) : null;
+  };
+
+  const getRconInfo = async () => {
     try {
-      const list = await rcon.send('list'); // "There are X of a max of Y players online: ..."
-      const m = list.match(/There are\s+(\d+)\s+of/i);
-      if (m) mcCount = parseInt(m[1], 10);
-    } catch {}
-    await rcon.end();
-  } catch {
-    // 2) Fallback rápido al ping del server (por si el RCON falla)
-    try {
-      const s = await status(process.env.MC_HOST, parseInt(process.env.MC_PORT, 10), { timeout: 1500 });
-      statusEmoji = '🟢';
-      mcCount = s.players.online;
-    } catch {
-      statusEmoji = '🔴';
-      mcCount = 0;
+      const rcon = await Rcon.connect({
+        host: HOST,
+        port: RCON_PORT,
+        password: RCON_PASS,
+        timeout: TIMEOUT_MS,
+      });
+      const reply = await rcon.send('list');
+      await rcon.end();
+      const count = parsePlayersFromList(reply);
+      if (DEBUG) console.log('[RCON] reply:', reply, '=> count:', count);
+      return { online: true, players: count }; // players puede ser null si no se pudo parsear
+    } catch (e) {
+      if (DEBUG) console.log('[RCON] fail:', e.message);
+      return { online: false, players: null };
     }
-  }
+  };
+
+  const getPingInfo = async () => {
+    try {
+      const s = await status(HOST, JAVA_PORT, { timeout: TIMEOUT_MS });
+      const count = s?.players?.online ?? 0;
+      if (DEBUG) console.log('[PING] ok players:', count);
+      return { online: true, players: count };
+    } catch (e) {
+      if (DEBUG) console.log('[PING] fail:', e.message);
+      return { online: false, players: 0 };
+    }
+  };
+
+  // Ejecuta ambos en paralelo y combina
+  const [rconRes, pingRes] = await Promise.all([getRconInfo(), getPingInfo()]);
+
+  // ¿El server está online? si cualquiera de los dos respondió
+  const isOnline = rconRes.online || pingRes.online;
+
+  // Elige mejor conteo: el de RCON si es número válido, si no el de ping
+  let mcCount = 0;
+  if (Number.isInteger(rconRes.players)) mcCount = rconRes.players;
+  else if (Number.isInteger(pingRes.players)) mcCount = pingRes.players;
+
+  const statusEmoji = isOnline ? '🟢' : '🔴';
 
   try {
     await statusChan.setName(`📊 Status: ${statusEmoji}`);
@@ -190,7 +228,6 @@ async function updateChannelNames() {
     console.error('⚠️ Error renaming channels:', err);
   }
 }
-
 
 // ───────────────────────────────────────────────────────────────────────────────
 // Bienvenida con Canvas (config + funciones + listener)
