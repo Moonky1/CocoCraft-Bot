@@ -41,7 +41,7 @@ console.log('TRANSCRIPT_DIR =', TRANSCRIPT_DIR);
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
 // ───────────────────────────────────────────────────────────────
-// Discord Client
+// Discord Client (añadimos rest timeout + retry)
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -49,6 +49,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  rest: { timeout: 30_000, retryLimit: 3 }
 });
 
 // Cargar el listener del canal de verificación (espera ~15s y DM)
@@ -141,6 +142,61 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 
+// ───────────────────────────────────────────────────────────────
+// Helpers NUEVOS
+
+// Renombre seguro con reintento si hubo timeout
+async function safeSetName(channel, desired) {
+  if (!channel) return;
+  if (channel.name === desired) return; // evita llamadas innecesarias
+  try {
+    await channel.setName(desired);
+  } catch (e) {
+    const code = e?.code || e?.name || '';
+    if (String(code).includes('UND_ERR_CONNECT_TIMEOUT')) {
+      console.warn(`⏳ Rename timeout en ${channel.id}. Reintento en 10s...`);
+      setTimeout(() => {
+        if (channel.name !== desired) channel.setName(desired).catch(() => {});
+      }, 10_000);
+    } else if (code === 50013) {
+      console.error('❌ Missing Permissions al renombrar canal', channel.id);
+    } else {
+      console.error('⚠️ Error renombrando canal', channel.id, e);
+    }
+  }
+}
+
+// Helpers de roles que respetan jerarquía (evita 50013)
+function canAssignRole(guild, roleId) {
+  const role = guild.roles.cache.get(roleId);
+  const me = guild.members.me;
+  if (!role || !me) return false;
+  return me.roles.highest.comparePositionTo(role) > 0; // mi rol más alto > rol objetivo
+}
+
+async function tryAddRole(member, roleId, reason) {
+  const guild = member.guild;
+  const role = guild.roles.cache.get(roleId);
+  if (!role) return console.warn('⚠️ Role no existe:', roleId);
+  if (!canAssignRole(guild, roleId)) {
+    return console.warn(`⚠️ No puedo asignar ${role.name} (${roleId}). Sube el rol del bot por encima.`);
+  }
+  try { await member.roles.add(roleId, reason); }
+  catch (e) { console.error('❌ add role error', roleId, e.code || e.message); }
+}
+
+async function tryRemoveRole(member, roleId, reason) {
+  const guild = member.guild;
+  const role = guild.roles.cache.get(roleId);
+  if (!role) return;
+  if (!canAssignRole(guild, roleId)) {
+    return console.warn(`⚠️ No puedo quitar ${role.name} (${roleId}). Sube el rol del bot por encima.`);
+  }
+  try { await member.roles.remove(roleId, reason); }
+  catch (e) { console.error('❌ remove role error', roleId, e.code || e.message); }
+}
+
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Estado (vía RCON + ping Java) → renombra canales (robusto)
 async function updateChannelNames() {
@@ -163,17 +219,10 @@ async function updateChannelNames() {
   // Helpers
   const parsePlayersFromList = (text) => {
     if (!text) return null;
-
-    // Ejemplos que cubrimos:
-    // "There are 3 of a max of 200 players online:" (inglés)
-    // "Hay 3 de un máximo de 200 jugadores conectados:" (español)
-    // Formatos abreviados o plugins: "3 players online", "Online: 3/200", etc.
-
     let m =
       text.match(/(?:There are|Hay)\s+(\d+)\s+(?:of|de)\s+/i) ||
       text.match(/(\d+)\s+players?\s+online/i) ||
       text.match(/online:\s*(\d+)\s*\/\s*\d+/i);
-
     return m ? parseInt(m[1], 10) : null;
   };
 
@@ -189,7 +238,7 @@ async function updateChannelNames() {
       await rcon.end();
       const count = parsePlayersFromList(reply);
       if (DEBUG) console.log('[RCON] reply:', reply, '=> count:', count);
-      return { online: true, players: count }; // players puede ser null si no se pudo parsear
+      return { online: true, players: count };
     } catch (e) {
       if (DEBUG) console.log('[RCON] fail:', e.message);
       return { online: false, players: null };
@@ -199,7 +248,7 @@ async function updateChannelNames() {
   const getPingInfo = async () => {
     try {
       const s = await status(HOST, JAVA_PORT, { timeout: TIMEOUT_MS });
-      const count = s?.players?.online ?? 0;
+    const count = s?.players?.online ?? 0;
       if (DEBUG) console.log('[PING] ok players:', count);
       return { online: true, players: count };
     } catch (e) {
@@ -208,13 +257,9 @@ async function updateChannelNames() {
     }
   };
 
-  // Ejecuta ambos en paralelo y combina
   const [rconRes, pingRes] = await Promise.all([getRconInfo(), getPingInfo()]);
-
-  // ¿El server está online? si cualquiera de los dos respondió
   const isOnline = rconRes.online || pingRes.online;
 
-  // Elige mejor conteo: el de RCON si es número válido, si no el de ping
   let mcCount = 0;
   if (Number.isInteger(rconRes.players)) mcCount = rconRes.players;
   else if (Number.isInteger(pingRes.players)) mcCount = pingRes.players;
@@ -222,8 +267,8 @@ async function updateChannelNames() {
   const statusEmoji = isOnline ? '🟢' : '🔴';
 
   try {
-    await statusChan.setName(`📊 Status: ${statusEmoji}`);
-    await serverChan.setName(`👥 Server: ${mcCount}`);
+    await safeSetName(statusChan, `📊 Status: ${statusEmoji}`); // <─ usa helper
+    await safeSetName(serverChan, `👥 Server: ${mcCount}`);     // <─ usa helper
   } catch (err) {
     console.error('⚠️ Error renaming channels:', err);
   }
@@ -339,25 +384,21 @@ client.on(Events.GuildMemberAdd, async (member) => {
       return;
     }
 
-    // Roles
-    if (member.user.bot) {
-      if (WELCOME.ROLE_BOT_ID) {
-        await member.roles.add(WELCOME.ROLE_BOT_ID, 'Assign Bot role on join').catch(console.error);
-      }
-      // ❗️Ya NO retornamos aquí: también enviamos mensaje (útil si pruebas con un bot)
+    // Roles (usando helpers seguros que respetan jerarquía)
+    if (member.user.bot && WELCOME.ROLE_BOT_ID) {
+      await tryAddRole(member, WELCOME.ROLE_BOT_ID, 'Assign Bot role on join');
     }
+
     const hasVerified   = member.roles.cache.has(WELCOME.ROLE_VERIFIED_ID);
     const hasMember     = member.roles.cache.has(WELCOME.ROLE_MEMBER_ID);
     const hasUnverified = member.roles.cache.has(WELCOME.ROLE_UNVERIFIED_ID);
 
     if (hasVerified) {
-      if (hasUnverified) await member.roles.remove(WELCOME.ROLE_UNVERIFIED_ID).catch(() => {});
-      if (!hasMember)    await member.roles.add(WELCOME.ROLE_MEMBER_ID).catch(() => {});
+      if (hasUnverified) await tryRemoveRole(member, WELCOME.ROLE_UNVERIFIED_ID, 'Remove unverified');
+      if (!hasMember)    await tryAddRole(member, WELCOME.ROLE_MEMBER_ID, 'Add member');
     } else {
-      const toAdd = [];
-      if (!hasMember)     toAdd.push(WELCOME.ROLE_MEMBER_ID);
-      if (!hasUnverified) toAdd.push(WELCOME.ROLE_UNVERIFIED_ID);
-      if (toAdd.length)   await member.roles.add(toAdd, 'Baseline roles on join').catch(console.error);
+      if (!hasMember)     await tryAddRole(member, WELCOME.ROLE_MEMBER_ID, 'Baseline roles on join');
+      if (!hasUnverified) await tryAddRole(member, WELCOME.ROLE_UNVERIFIED_ID, 'Baseline roles on join');
     }
 
     // Anti-doble bienvenida entre instancias
