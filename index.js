@@ -1,13 +1,11 @@
-// index.js (inicio ordenado)
 require('dotenv').config();
 
-// ── Core deps: deben ir ANTES de usarse
 const fs   = require('fs');
 const path = require('path');
 const express = require('express');
 const { TRANSCRIPT_DIR } = require('./helpers/path');
 
-// ── Discord / otras libs
+//Discord
 const {
   Client, GatewayIntentBits, ActivityType, Events, Collection, AttachmentBuilder
 } = require('discord.js');
@@ -17,8 +15,7 @@ const { status } = require('minecraft-server-util');
 
 const ticketPanel = require('./commands/tickets.js'); // panel de tickets
 
-// ───────────────────────────────────────────────────────────────
-// Keep-Alive HTTP (Railway) + archivos de transcripts
+// Keep-Alive HTTP (Railway)
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (_req, res) => res.send('🤖 Bot alive'));
@@ -29,9 +26,7 @@ app.get('/_transcripts', (_req, res) => {
   });
 });
 
-// Sirve https://TU-DOMINIO/transcripts/archivo.html
 app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
-  // cache largo; no borra nada, solo headers
   maxAge: '1y',
   setHeaders(res) {
     res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
@@ -40,8 +35,7 @@ app.use('/transcripts', express.static(TRANSCRIPT_DIR, {
 console.log('TRANSCRIPT_DIR =', TRANSCRIPT_DIR);
 app.listen(PORT, () => console.log(`🌐 Healthcheck on port ${PORT}`));
 
-// ───────────────────────────────────────────────────────────────
-// Discord Client (añadimos rest timeout + retry)
+// Discord Client
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -52,14 +46,14 @@ const client = new Client({
   rest: { timeout: 30_000, retryLimit: 3 }
 });
 
-// Cargar el listener del canal de verificación (espera ~15s y DM)
+// Listener
 require('./events/verify-code-listener')(client);
 
 // ── Boost detector ────────────────────────────────────────────
 const BOOST_CHANNEL_ID   = process.env.BOOST_CHANNEL_ID   || '1404007396988289065'; // #boosts
 const TICKETS_CHANNEL_ID = process.env.TICKETS_CHANNEL_ID || '1399207405602082816'; // #tickets
 
-// anti-duplicado por si Discord emite varios updates seguidos del mismo user
+// anti-duplicado
 const recentBoosters = new Map(); // userId -> timestamp
 
 client.on('guildMemberUpdate', async (oldMember, newMember) => {
@@ -93,7 +87,6 @@ client.on('guildMemberUpdate', async (oldMember, newMember) => {
   }
 });
 
-// ───────────────────────────────────────────────────────────────
 // Carga de slash /commands
 client.commands = new Collection();
 
@@ -109,7 +102,6 @@ if (fs.existsSync(commandsPath)) {
   console.log(`✅ Cargados ${client.commands.size} comandos.`);
 }
 
-// ───────────────────────────────────────────────────────────────
 // Handler de interacciones
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
@@ -142,7 +134,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 
-// ───────────────────────────────────────────────────────────────
 // Helpers NUEVOS
 
 // Renombre seguro con reintento si hubo timeout
@@ -274,10 +265,8 @@ async function updateChannelNames() {
   }
 }
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Bienvenida con Canvas (config + funciones + listener)
+// Bienvenida
 
-// IDs/colores (lee de .env; con fallback donde aplica)
 const WELCOME = {
   CHANNEL_ID: process.env.WELCOME_CHANNEL_ID || '1399202129377234954',
   RULES_CHANNEL_ID: process.env.RULES_CHANNEL_ID || '',
@@ -384,7 +373,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
       return;
     }
 
-    // Roles (usando helpers seguros que respetan jerarquía)
+    // Roles
     if (member.user.bot && WELCOME.ROLE_BOT_ID) {
       await tryAddRole(member, WELCOME.ROLE_BOT_ID, 'Assign Bot role on join');
     }
@@ -432,8 +421,6 @@ client.on(Events.GuildMemberAdd, async (member) => {
   }
 });
 
-
-// ───────────────────────────────────────────────────────────────────────────────
 // READY
 client.once('ready', async () => {
   console.log(`✅ Logged in as ${client.user.tag}`);
@@ -444,14 +431,12 @@ client.once('ready', async () => {
     activities: [{ name: 'CocoCraft', type: ActivityType.Playing }]
   });
 
-  // ---- AUTO-SYNC de slash commands (guild) ----
+  //AUTO-SYNC de slash commands (guild)
   const syncSlash = async () => {
     try {
-      // Asegúrate de tener la guild en caché
       await client.guilds.fetch().catch(() => {});
       const guild = client.guilds.cache.get(process.env.GUILD_ID);
 
-      // Lista de comandos (agrega aquí los que tengas)
       const commands = [
         require('./commands/suggest').data.toJSON(),
         require('./commands/reglas_inicio').data.toJSON(),
@@ -463,7 +448,6 @@ client.once('ready', async () => {
         require('./commands/coco').data.toJSON(),
         require('./commands/user').data.toJSON(),
         require('./commands/playtimetop').data.toJSON(),
-        // require('./commands/otro').data.toJSON(),
       ];
 
       const commandsPath = path.join(__dirname, 'commands');
@@ -472,11 +456,11 @@ client.once('ready', async () => {
       await guild.commands.set(commands);
 
       if (guild) {
-        // Registrar como GUILD commands (aparecen al instante y son más estables)
+        // Registrar como GUILD commands
         await guild.commands.set(commands);
         console.log('✅ Slash sincronizado en la guild.');
       } else {
-        // Fallback: global (tarda en propagarse, pero sirve si no hay GUILD_ID)
+        // Fallback: global 
         await client.application.commands.set(commands);
         console.log('✅ Slash global actualizado.');
       }
@@ -485,11 +469,9 @@ client.once('ready', async () => {
     }
   };
 
-  // sincroniza ya y luego cada 6 horas
   await syncSlash();
   setInterval(syncSlash, 6 * 60 * 60 * 1000);
 
-  // ---- tus tareas recurrentes (ya las tenías) ----
   try {
     await updateChannelNames();
   } catch (e) { console.error('updateChannelNames on boot', e); }
@@ -498,6 +480,5 @@ client.once('ready', async () => {
   }, 60_000);
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
 // LOGIN
 client.login(process.env.DISCORD_TOKEN).catch(err => console.error('❌ Login error:', err));
