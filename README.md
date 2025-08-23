@@ -1,10 +1,9 @@
 <p align="center">
-  <a href="https://cococraft.net">
-    <img src="./assets/banner-cococraft.png" alt="CocoCraft" width="100%">
-  </a>
+  <img src="./assets/images/banner-cococraft.png" alt="CocoCraft" width="100%">
 </p>
 
-<h1 align="center">CocoCraft-Bot</h1>
+
+<h1 align="center">Official CocoCraft Github Bot</h1>
 <p align="center">Bot oficial de CocoCraft — Integración Discord ↔ Minecraft (Towny)</p>
 
 <p align="center">
