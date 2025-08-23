@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner-cococraft.png" alt="CocoCraft" />
+  <img src="assets/banner-cococraft.png"/>
 </p>
 
 <h1 align="center">CocoCraft-Bot</h1>
