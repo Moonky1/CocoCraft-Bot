@@ -5,7 +5,7 @@ const { Rcon } = require('rcon-client');
 const fs = require('fs');
 const path = require('path');
 
-// Acepta tus nombres de vars antiguos y nuevos
+// Vars RCON (acepta tus nombres antiguos y nuevos)
 const RCON_HOST = process.env.MC_RCON_HOST || process.env.MC_HOST;
 const RCON_PORT = Number(process.env.MC_RCON_PORT || process.env.RCON_PORT || 25575);
 const RCON_PASS = process.env.MC_RCON_PASSWORD || process.env.MC_PASSWORD;
@@ -38,28 +38,14 @@ function guessMcNameFromMember(m){
 }
 
 async function withRcon(fn){
-  if (!RCON_HOST || !RCON_PASS) throw new Error('RCON no configurado');
+  if (!RCON_HOST || !RCON_PASS) throw new Error('RCON no configurado (MC_RCON_HOST/PORT/PASSWORD o MC_HOST/RCON_PORT/MC_PASSWORD)');
   const r = await Rcon.connect({ host:RCON_HOST, port:RCON_PORT, password:RCON_PASS });
   try { return await fn(r); } finally { try{ r.end(); }catch{} }
 }
 
-async function resolveSkinHandle(mcName) {
-  // Intentamos obtener el "skin real" que aplica SkinsRestorer
-  const raw = await withRcon(r =>
-    r.send(`papi parse ${mcName} %skinsrestorer_skin%|%skinsrestorer_skin_owner%|%skinsrestorer_skinuuid%`)
-  );
-  const last = String(raw || '').trim().split('\n').pop();
-  const [skin, owner, uuid] = last.split(/[|/]/g).map(s => strip(s));
-
-  const nameCandidate = [skin, owner].find(v => v && !v.includes('%')) || mcName;
-  const uuidCandidate = uuid && !uuid.includes('%') ? uuid : null;
-
-  return { name: nameCandidate, uuid: uuidCandidate };
-}
-
-// ---------- PAPI multi-variantes y separador flexible ----------
+// ---------- PAPI (multi-variantes + separador | o /) ----------
 async function fetchViaPapi(player){
-  const placeholders = [
+  const ph = [
     '%player_first_played%',                 // 0
     '%player_last_played%',                  // 1
     '%towny_town%',                          // 2
@@ -71,55 +57,44 @@ async function fetchViaPapi(player){
     '%townyadvanced_resident_registered%',   // 8
     '%townyadvanced_resident_lastonline%'    // 9
   ];
-  const cmd = `papi parse ${player} ${placeholders.join('|')}`;
-  const raw = await withRcon(r => r.send(cmd));
+  const raw = await withRcon(r => r.send(`papi parse ${player} ${ph.join('|')}`));
   if (DEBUG) console.log('[PAPI RAW]', raw);
 
-  // A veces el sv reemplaza | por / → dividimos por ambos
-  const lastLine = String(raw||'').trim().split('\n').pop();
-  const parts = lastLine.split(/[|/]/g).map(x => strip(x));
+  const last = String(raw||'').trim().split('\n').pop();
+  const p = last.split(/[|/]/g).map(x => strip(x));
 
-  const firstPlayed = toEpochSeconds(parts[0]) || toEpochSeconds(parts[8]);
-  const lastPlayed  = toEpochSeconds(parts[1]) || toEpochSeconds(parts[9]);
+  const firstPlayed = toEpochSeconds(p[0]) || toEpochSeconds(p[8]);
+  const lastPlayed  = toEpochSeconds(p[1]) || toEpochSeconds(p[9]);
 
   const pick = arr => (arr.find(v => v && !v.includes('%')) || '').trim();
-  const town  = pick([parts[2], parts[4], parts[5], parts[7]]);
-  const about = pick([parts[3], parts[6]]);
-
+  const town  = pick([p[2], p[4], p[5], p[7]]);
+  const about = pick([p[3], p[6]]);
   return { firstPlayed, lastPlayed, town, about };
 }
 
-// ---------- Fallback /resident: busca tokens en todo el texto (ES/EN) ----------
+// ---------- Fallback /resident (ES/EN, tokens en cualquier parte) ----------
 async function fetchViaResident(player){
-  const tryCmds = [
-    `resident ${player}`,
-    `res ${player}`,
-    `towny:resident ${player}`
-  ];
+  const cmds = [`resident ${player}`, `res ${player}`, `towny:resident ${player}`];
   let out = '';
   await withRcon(async r => {
-    for (const c of tryCmds){
+    for (const c of cmds){
       const resp = await r.send(c);
       if (DEBUG) console.log('[RES RAW]', c, resp);
-      if (resp && !/Unknown command|Type .help|No such resident|No player by the name/i.test(resp)) {
-        out = resp; break;
-      }
+      if (resp && !/Unknown command|Type .help|No such resident|No player by the name/i.test(resp)) { out = resp; break; }
     }
   });
-  const text = strip(out);
+  const txt = strip(out);
 
-  // Coinciden aunque compartan línea
-  const townMatch  = text.match(/(?:^|\n|\s)(?:Town|Ciudad)\s*:\s*([^\n]+)/i);
-  const aboutMatch = text.match(/(?:^|\n|\s)(?:About|Acerca de)\s*:\s*([^\n]+)/i);
-  const regMatch   = text.match(/(?:^|\n|\s)(?:Registered|Registrado)\s*:\s*([^\n]+)/i);
-  const lastMatch  = text.match(/(?:^|\n|\s)(?:Last\s*online|Última\s*conexión)\s*:\s*([^\n]+)/i);
+  const townMatch  = txt.match(/(?:^|\n|\s)(?:Town|Ciudad)\s*:\s*([^\n]+)/i);
+  const aboutMatch = txt.match(/(?:^|\n|\s)(?:About|Acerca de)\s*:\s*([^\n]+)/i);
+  const regMatch   = txt.match(/(?:^|\n|\s)(?:Registered|Registrado)\s*:\s*([^\n]+)/i);
+  const lastMatch  = txt.match(/(?:^|\n|\s)(?:Last\s*online|Última\s*conexión)\s*:\s*([^\n]+)/i);
 
   let about = aboutMatch ? aboutMatch[1].trim() : '';
   if (/\/res\s+set\s+about/i.test(about)) about = '';
 
   const parseLoose = s => {
     if (!s) return null;
-    // quita @, comas, dobles espacios
     const ms = Date.parse(s.replace('@','').replace(/ +/g,' ').trim());
     return isFinite(ms) ? Math.floor(ms/1000) : null;
   };
@@ -128,14 +103,27 @@ async function fetchViaResident(player){
     town: townMatch ? townMatch[1].trim() : '',
     about,
     firstPlayed: parseLoose(regMatch?.[1]),
-    lastPlayed : parseLoose(lastMatch?.[1])
+    lastPlayed : parseLoose(lastMatch?.[1]),
   };
+}
+
+// ---------- Resolver skin (SkinsRestorer) ----------
+async function resolveSkinHandle(mcName) {
+  const raw = await withRcon(r =>
+    r.send(`papi parse ${mcName} %skinsrestorer_skin%|%skinsrestorer_skin_owner%|%skinsrestorer_skinuuid%`)
+  );
+  if (DEBUG) console.log('[SKIN RAW]', raw);
+  const last = String(raw || '').trim().split('\n').pop();
+  const [skin, owner, uuid] = last.split(/[|/]/g).map(s => strip(s));
+
+  const nameCandidate = [skin, owner].find(v => v && !v.includes('%')) || mcName;
+  const uuidCandidate = uuid && !uuid.includes('%') ? uuid : null;
+  return { name: nameCandidate, uuid: uuidCandidate };
 }
 
 async function fetchMcProfile(mcName){
   let data = {};
   try { data = await fetchViaPapi(mcName); } catch (e) { if (DEBUG) console.error('[PAPI ERROR]', e); }
-  // Si falta cualquier cosa, intentamos /res
   if (!data.town || !data.about || data.firstPlayed == null || data.lastPlayed == null) {
     try {
       const fb = await fetchViaResident(mcName);
@@ -157,51 +145,66 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('user')
     .setDescription('Muestra registro, última conexión, ciudad y “acerca de” del jugador vinculado')
-    .addUserOption(o =>
-      o.setName('usuario').setDescription('Usuario de Discord (opcional)')
+    .addUserOption(o => o
+      .setName('usuario')
+      .setDescription('Usuario de Discord (opcional: por defecto tú)')
     ),
 
   async execute(interaction){
-    await interaction.deferReply({ ephemeral: true });
+    try {
+      await interaction.deferReply({ ephemeral: true });
 
-    const chosen = interaction.options.getUser('usuario') || interaction.user;
-    const member = interaction.guild.members.cache.get(chosen.id)
-      || await interaction.guild.members.fetch(chosen.id).catch(() => null);
+      const chosen = interaction.options.getUser('usuario') || interaction.user;
+      const member = interaction.guild.members.cache.get(chosen.id)
+        || await interaction.guild.members.fetch(chosen.id).catch(() => null);
 
-    const mcName = member ? guessMcNameFromMember(member) : null;
+      // Datos MC inicializados (¡evita ReferenceError!)
+      let mc = { firstPlayed: null, lastPlayed: null, town: '', about: '', skinThumb: '' };
 
-    // Miniatura: si hay nick, usa skin sí o sí
- let thumb;
-if (mcName) {
-  try {
-    const skin = await resolveSkinHandle(mcName);
-    // Si tenemos UUID de SkinsRestorer, usa Crafatar con overlay; si no, usa el nombre
-    thumb = skin.uuid
-      ? `https://crafatar.com/avatars/${skin.uuid}?overlay`
-      : `https://minotar.net/avatar/${encodeURIComponent(skin.name)}/128`;
-  } catch {
-    thumb = `https://minotar.net/avatar/${encodeURIComponent(mcName)}/128`;
-  }
-} else {
-  thumb = chosen.displayAvatarURL({ extension: 'png', size: 128 });
-}
+      const mcName = member ? guessMcNameFromMember(member) : null;
 
+      if (mcName) {
+        try {
+          const prof = await fetchMcProfile(mcName);
+          mc = { ...mc, ...prof };
+        } catch (e) { if (DEBUG) console.error('[PROFILE ERROR]', e); }
 
-    const title = mcName ? `👤 ${mcName}` : `👤 ${chosen.username}`;
-    const embed = new EmbedBuilder()
-      .setAuthor({ name: 'CocoCraft🥥 | Minecraft Server', iconURL: interaction.guild.iconURL({ size: 64 }) || undefined })
-      .setTitle(title)
-      .setColor(0xD3D3D3)
-      .setThumbnail(thumb)
-      .addFields(
-        { name: '📅 Registrado',      value: firstPlayed ? time(firstPlayed, 'F') : '—', inline: true },
-        { name: '🕒 Última conexión', value: lastPlayed  ? time(lastPlayed,  'F') : '—', inline: true },
-        { name: '🏙️ Ciudad',         value: town  || '—', inline: false },
-        { name: '📝 Acerca de',       value: (about || '—').slice(0, 512), inline: false },
-      )
-      .setFooter({ text: 'CocoCraft🥥 | Minecraft Server' })
-      .setTimestamp();
+        try {
+          const skin = await resolveSkinHandle(mcName);
+          mc.skinThumb = skin.uuid
+            ? `https://crafatar.com/avatars/${skin.uuid}?overlay`
+            : `https://minotar.net/avatar/${encodeURIComponent(skin.name)}/128`;
+        } catch {
+          mc.skinThumb = `https://minotar.net/avatar/${encodeURIComponent(mcName)}/128`;
+        }
+      }
 
-    await interaction.editReply({ embeds: [embed], ephemeral: true });
-  }
+      const title = mcName ? `👤 ${mcName}` : `👤 ${chosen.username}`;
+      const thumb = mc.skinThumb || chosen.displayAvatarURL({ extension: 'png', size: 128 });
+
+      const embed = new EmbedBuilder()
+        .setAuthor({ name: 'CocoCraft🥥 | Minecraft Server', iconURL: interaction.guild.iconURL({ size: 64 }) || undefined })
+        .setTitle(title)
+        .setColor(0xD3D3D3)
+        .setThumbnail(thumb)
+        .addFields(
+          { name: '📅 Registrado',      value: mc.firstPlayed ? time(mc.firstPlayed, 'F') : '—', inline: true },
+          { name: '🕒 Última conexión', value: mc.lastPlayed  ? time(mc.lastPlayed,  'F') : '—', inline: true },
+          { name: '🏙️ Ciudad',         value: mc.town  || '—', inline: false },
+          { name: '📝 Acerca de',       value: (mc.about || '—').slice(0, 512), inline: false },
+        )
+        .setFooter({ text: 'CocoCraft🥥 | Minecraft Server' })
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed] });
+
+    } catch (err) {
+      console.error('[/user ERROR]', err);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content: '⚠️ Ocurrió un error al consultar tus datos. Revisa que estés vinculado y que el servidor tenga PAPI (player/statistic/towny o townyadvanced) y SkinsRestorer.' }).catch(()=>{});
+      } else {
+        await interaction.reply({ content: '⚠️ Ocurrió un error al consultar tus datos.', ephemeral: true }).catch(()=>{});
+      }
+    }
+  },
 };
