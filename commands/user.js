@@ -43,56 +43,66 @@ async function withRcon(fn){
 
 // ---------- PAPI ----------
 async function fetchViaPapi(player){
-  const toParse = [
-    '%player_first_played%',
-    '%player_last_played%',
-    '%townyadvanced_town%','%towny_town%',
-    '%townyadvanced_resident_about%','%towny_resident_about%',
-  ].join('|');
-  const raw = await withRcon(r => r.send(`papi parse ${player} ${toParse}`));
+  // Probamos múltiples variantes de Towny/TownyAdvanced
+  const candidates = [
+    '%player_first_played%',                 // 0
+    '%player_last_played%',                  // 1
+    '%towny_town%',                          // 2
+    '%towny_resident_about%',                // 3
+    '%towny_resident_town%',                 // 4
+    '%townyadvanced_town%',                  // 5
+    '%townyadvanced_resident_about%',        // 6
+    '%townyadvanced_resident_town%',         // 7
+    '%townyadvanced_resident_registered%',   // 8
+    '%townyadvanced_resident_lastonline%'    // 9
+  ];
+  const raw = await withRcon(r => r.send(`papi parse ${player} ${candidates.join('|')}`));
   const line = String(raw||'').trim().split('\n').pop();
   const p = line.split('|').map(x => stripColors(x));
 
-  const firstPlayed = toEpochSeconds(p[0]);
-  const lastPlayed  = toEpochSeconds(p[1]);
-  const town  = (!invalidPlaceholder(p[2]) ? p[2] : (!invalidPlaceholder(p[3]) ? p[3] : '')) || '';
-  const about = (!invalidPlaceholder(p[4]) ? p[4] : (!invalidPlaceholder(p[5]) ? p[5] : '')) || '';
+  const firstPlayed = toEpochSeconds(p[0]) || toEpochSeconds(p[8]);
+  const lastPlayed  = toEpochSeconds(p[1]) || toEpochSeconds(p[9]);
+
+  // elegir el primer town que no venga vacío ni con %
+  const town = [p[2], p[4], p[5], p[7]].find(v => v && !v.includes('%')) || '';
+  const about = [p[3], p[6]].find(v => v && !v.includes('%')) || '';
 
   return { firstPlayed, lastPlayed, town, about };
 }
+
 
 // ---------- Fallback /res (soporta ES/EN y varios comandos) ----------
 async function fetchViaResident(player){
   const tryCmds = [
     `resident ${player}`,
     `res ${player}`,
-    `towny:resident ${player}`,
+    `towny:resident ${player}`
   ];
   let out = '';
   await withRcon(async r => {
     for (const cmd of tryCmds){
-      out = await r.send(cmd);
-      if (out && !/Unknown command|Type .help|No such resident/i.test(out)) break;
+      const resp = await r.send(cmd);
+      if (resp && !/Unknown command|Type .help|No such resident|No player by the name/i.test(resp)) {
+        out = resp; break;
+      }
     }
   });
   const lines = String(out||'').split('\n').map(stripColors);
 
-  const reTown  = /^\s*(?:Town|Ciudad)\s*:\s*(.+)$/i;
-  const reAbout = /^\s*(?:About|Acerca de)\s*:\s*(.+)$/i;
-  const reFirst = /\b(?:Registered|Registrado)\s*:\s*(.+)$/i;
-  const reLast  = /\b(?:Last\s*online|Última\s*conexión)\s*:\s*(.+)$/i;
+  // Soporta español/inglés y distintas posiciones
+  const getAfterColon = s => s.split(':').slice(1).join(':').trim();
 
-  let town = '', about = '', firstPlayedTxt = '', lastPlayedTxt = '';
+  let town = '', about = '', firstTxt = '', lastTxt = '';
   for (const l of lines){
-    const t = l.match(reTown);  if (t && !town) town = t[1].trim();
-    const a = l.match(reAbout); if (a && !about) about = a[1].trim();
-    const f = l.match(reFirst); if (f && !firstPlayedTxt) firstPlayedTxt = f[1].trim();
-    const z = l.match(reLast);  if (z && !lastPlayedTxt)  lastPlayedTxt  = z[1].trim();
+    const L = l.toLowerCase();
+    if (!town     && (L.startsWith('town:')        || L.startsWith('ciudad:')))        town     = getAfterColon(l);
+    if (!about    && (L.startsWith('about:')       || L.startsWith('acerca de:')))     about    = getAfterColon(l);
+    if (!firstTxt && (L.startsWith('registered:')  || L.startsWith('registrado:')))    firstTxt = getAfterColon(l);
+    if (!lastTxt  && (L.startsWith('last online:') || L.startsWith('última conexión:'))) lastTxt = getAfterColon(l);
   }
-  // Si el "Acerca de" es el texto por defecto, lo consideramos vacío
+  // Si el about es el mensaje por defecto de ayuda, lo consideramos vacío
   if (/\/res\s+set\s+about/i.test(about)) about = '';
 
-  // Intenta parsear fechas a epoch si se puede
   const parseLoose = s => {
     if (!s) return null;
     const ms = Date.parse(s.replace('@','').trim());
@@ -100,12 +110,13 @@ async function fetchViaResident(player){
   };
 
   return {
-    firstPlayed: parseLoose(firstPlayedTxt),
-    lastPlayed : parseLoose(lastPlayedTxt),
+    firstPlayed: parseLoose(firstTxt),
+    lastPlayed : parseLoose(lastTxt),
     town,
     about
   };
 }
+
 
 // ---------- Wrapper final ----------
 async function fetchMcProfile(mcName){
