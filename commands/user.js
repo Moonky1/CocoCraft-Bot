@@ -43,6 +43,20 @@ async function withRcon(fn){
   try { return await fn(r); } finally { try{ r.end(); }catch{} }
 }
 
+async function resolveSkinHandle(mcName) {
+  // Intentamos obtener el "skin real" que aplica SkinsRestorer
+  const raw = await withRcon(r =>
+    r.send(`papi parse ${mcName} %skinsrestorer_skin%|%skinsrestorer_skin_owner%|%skinsrestorer_skinuuid%`)
+  );
+  const last = String(raw || '').trim().split('\n').pop();
+  const [skin, owner, uuid] = last.split(/[|/]/g).map(s => strip(s));
+
+  const nameCandidate = [skin, owner].find(v => v && !v.includes('%')) || mcName;
+  const uuidCandidate = uuid && !uuid.includes('%') ? uuid : null;
+
+  return { name: nameCandidate, uuid: uuidCandidate };
+}
+
 // ---------- PAPI multi-variantes y separador flexible ----------
 async function fetchViaPapi(player){
   const placeholders = [
@@ -157,15 +171,21 @@ module.exports = {
     const mcName = member ? guessMcNameFromMember(member) : null;
 
     // Miniatura: si hay nick, usa skin sí o sí
-    const thumb = mcName
-      ? `https://minotar.net/avatar/${encodeURIComponent(mcName)}/128`
-      : chosen.displayAvatarURL({ extension: 'png', size: 128 });
+ let thumb;
+if (mcName) {
+  try {
+    const skin = await resolveSkinHandle(mcName);
+    // Si tenemos UUID de SkinsRestorer, usa Crafatar con overlay; si no, usa el nombre
+    thumb = skin.uuid
+      ? `https://crafatar.com/avatars/${skin.uuid}?overlay`
+      : `https://minotar.net/avatar/${encodeURIComponent(skin.name)}/128`;
+  } catch {
+    thumb = `https://minotar.net/avatar/${encodeURIComponent(mcName)}/128`;
+  }
+} else {
+  thumb = chosen.displayAvatarURL({ extension: 'png', size: 128 });
+}
 
-    let firstPlayed=null, lastPlayed=null, town='', about='';
-    if (mcName){
-      try { ({ firstPlayed, lastPlayed, town, about } = await fetchMcProfile(mcName)); }
-      catch (e){ if (DEBUG) console.error('[PROFILE ERROR]', e); }
-    }
 
     const title = mcName ? `👤 ${mcName}` : `👤 ${chosen.username}`;
     const embed = new EmbedBuilder()
